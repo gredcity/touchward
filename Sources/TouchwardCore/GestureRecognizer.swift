@@ -1,3 +1,4 @@
+// Modified for desktop swipe gestures, 2026-09-25.
 import CoreGraphics
 import Foundation
 
@@ -6,6 +7,7 @@ public struct GestureConfig: Sendable {
     public var longPressDuration: TimeInterval = 0.60
     /// Movement in points beyond which a touch is a drag, not a tap.
     public var moveThreshold: CGFloat = 10
+    public var swipeThreshold: CGFloat = 60
     /// Backstop for a drag whose report stream died (unplug, sleep, dropped final report).
     /// Deliberately generous: a change-driven controller sends nothing while a finger rests,
     /// so a short timeout would cut legitimate slow drags short.
@@ -40,9 +42,22 @@ public struct GestureRecognizer: Sendable {
         /// a sequence must never be reclassified as a two-finger tap.
         var wasGesture: Bool
         var contactCount: Int
-        /// Mean distance from the centroid, for the three-finger zoom. Held alongside the
-        /// centroid so a hand that changes finger count re-seeds both at once.
-        var lastSpread: CGFloat = 0
+    }
+
+    private enum ThreeFingerMode {
+        case undecided
+        case horizontal(direction: CGFloat)
+        case pinch
+        case ignored
+    }
+
+    private struct ThreeFinger {
+        var contactIDs: [UInt8]
+        var start: CGPoint
+        var startSpread: CGFloat
+        var lastSpread: CGFloat
+        var canSwipe: Bool
+        var mode: ThreeFingerMode = .undecided
     }
 
     private enum State {
@@ -52,8 +67,8 @@ public struct GestureRecognizer: Sendable {
         /// Right click already emitted; ignore everything until the finger lifts.
         case longPressed
         case twoDown(TwoFinger)
-        /// Three or more fingers: zooming.
-        case threeDown(TwoFinger)
+        case threeDown(ThreeFinger)
+        case swiped
         /// Fewer than two fingers remain, but the hand has not left the glass.
         case settling(TwoFinger)
     }
@@ -92,7 +107,7 @@ public struct GestureRecognizer: Sendable {
             if count >= 2 {
                 // More fingers reclassify the gesture; the pending tap is void.
                 state = count >= 3
-                    ? .threeDown(twoFinger(frame, wasGesture: true))
+                    ? .threeDown(threeFinger(frame))
                     : .twoDown(twoFinger(frame, wasGesture: false))
                 return []
             }
@@ -121,7 +136,7 @@ public struct GestureRecognizer: Sendable {
             }
             if count >= 2 {
                 state = count >= 3
-                    ? .threeDown(twoFinger(frame, wasGesture: true))
+                    ? .threeDown(threeFinger(frame))
                     : .twoDown(twoFinger(frame, wasGesture: true))
                 return [.dragEnded(at: last)]
             }
@@ -136,7 +151,7 @@ public struct GestureRecognizer: Sendable {
             state = .dragging(id: id, last: point)
             return [.dragMoved(to: point)]
 
-        case .longPressed:
+        case .longPressed, .swiped:
             guard count == 0 else { return [] }
             state = .idle
             return [.sessionEnded]
@@ -151,9 +166,7 @@ public struct GestureRecognizer: Sendable {
                 return []
             }
             if count >= 3 {
-                // A third finger arrives: this is a zoom now, and it must not also emit the
-                // scroll implied by a centroid that just jumped onto a new contact set.
-                state = .threeDown(twoFinger(frame, wasGesture: true))
+                state = .threeDown(threeFinger(frame))
                 return []
             }
             guard count == two.contactCount else {
@@ -175,41 +188,8 @@ public struct GestureRecognizer: Sendable {
             state = .twoDown(two)
             return [.scroll(dx: dx, dy: dy, at: current)]
 
-        case .threeDown(var three):
-            if count == 0 {
-                state = .idle
-                return finishTwoFinger(three, at: frame.time)
-            }
-            if count < 3 {
-                // Fingers leave one at a time. Settling keeps the session alive without
-                // letting the tail of a zoom be read as a two-finger tap.
-                state = .settling(three)
-                return []
-            }
-            guard count == three.contactCount else {
-                // The finger count changed: a spread measured across a different set of
-                // contacts would be a step the hand never made.
-                state = .threeDown(reseeded(three, from: frame))
-                return []
-            }
-
-            let spread = spread(frame)
-            // A hand reported as three coincident points has no spread to divide by, and
-            // inf would trap the moment anything downstream turned it into an integer.
-            guard three.lastSpread > 0, spread > 0 else {
-                three.lastSpread = spread
-                state = .threeDown(three)
-                return []
-            }
-
-            let scale = spread / three.lastSpread
-            guard scale != 1 else { return [] }
-
-            three.lastSpread = spread
-            three.lastCentroid = centroid(frame)
-            three.moved = true
-            state = .threeDown(three)
-            return [.pinch(scale: scale, at: centroid(frame))]
+        case .threeDown(let three):
+            return handleThree(frame, previous: three)
 
         case .settling(var two):
             if count == 0 {
@@ -217,7 +197,7 @@ public struct GestureRecognizer: Sendable {
                 return finishTwoFinger(two, at: frame.time)
             }
             if count >= 3 {
-                state = .threeDown(reseeded(two, from: frame))
+                state = .threeDown(threeFinger(frame))
                 return []
             }
             if count >= 2 {
@@ -284,9 +264,7 @@ public struct GestureRecognizer: Sendable {
         case 2:
             state = .twoDown(twoFinger(frame, wasGesture: false))
         default:
-            // A whole hand landing at once is a zoom from its very first frame, and never
-            // a two-finger tap on the way out.
-            state = .threeDown(twoFinger(frame, wasGesture: true))
+            state = .threeDown(threeFinger(frame))
         }
         return []
     }
@@ -301,20 +279,76 @@ public struct GestureRecognizer: Sendable {
 
     private func twoFinger(_ frame: MappedFrame, wasGesture: Bool) -> TwoFinger {
         TwoFinger(startTime: frame.time, lastCentroid: centroid(frame),
-                  moved: false, wasGesture: wasGesture, contactCount: frame.contacts.count,
-                  lastSpread: spread(frame))
+                  moved: false, wasGesture: wasGesture, contactCount: frame.contacts.count)
     }
 
-    /// Re-anchors an in-flight multi-finger gesture on the contacts present now, keeping
-    /// how it started. Used whenever the contact set changes, so the next frame is measured
-    /// against something real instead of reporting the change itself as a movement.
-    private func reseeded(_ existing: TwoFinger, from frame: MappedFrame) -> TwoFinger {
-        var updated = existing
-        updated.contactCount = frame.contacts.count
-        updated.lastCentroid = centroid(frame)
-        updated.lastSpread = spread(frame)
-        updated.wasGesture = true
-        return updated
+    private func threeFinger(_ frame: MappedFrame) -> ThreeFinger {
+        let ids = frame.contacts.map(\.id).sorted()
+        let currentSpread = spread(frame)
+        return ThreeFinger(contactIDs: ids, start: centroid(frame),
+                           startSpread: currentSpread, lastSpread: currentSpread,
+                           canSwipe: ids.count == 3 && Set(ids).count == 3)
+    }
+
+    private mutating func handleThree(_ frame: MappedFrame, previous: ThreeFinger) -> [GestureEvent] {
+        let count = frame.contacts.count
+        guard count > 0 else {
+            state = .idle
+            return [.sessionEnded]
+        }
+        var three = previous
+        guard count >= 3 else {
+            three.contactIDs = []
+            state = .threeDown(three)
+            return []
+        }
+
+        let ids = frame.contacts.map(\.id).sorted()
+        if count > 3 || Set(ids).count != count { three.canSwipe = false }
+        let current = centroid(frame)
+        let currentSpread = spread(frame)
+        guard ids == three.contactIDs, three.startSpread > 0, currentSpread > 0 else {
+            three.contactIDs = ids
+            three.start = current
+            three.startSpread = currentSpread
+            three.lastSpread = currentSpread
+            state = .threeDown(three)
+            return []
+        }
+
+        let dx = current.x - three.start.x
+        let dy = current.y - three.start.y
+        if case .undecided = three.mode {
+            let travel = distance(current, three.start)
+            let spreadChange = abs(currentSpread - three.startSpread)
+            if travel >= config.moveThreshold, travel > spreadChange * 1.5 {
+                if abs(dx) >= abs(dy) * 1.5 {
+                    three.mode = .horizontal(direction: dx < 0 ? -1 : 1)
+                } else if abs(dy) >= abs(dx) * 1.5 {
+                    three.mode = .ignored
+                }
+            } else if spreadChange >= max(6, three.startSpread * 0.08), spreadChange > travel {
+                three.mode = .pinch
+            }
+        }
+
+        switch three.mode {
+        case .horizontal(let direction):
+            if three.canSwipe, count == 3, direction * dx >= config.swipeThreshold,
+               abs(dx) >= abs(dy) * 1.5 {
+                state = .swiped
+                return [direction < 0 ? .swipeLeft : .swipeRight]
+            }
+        case .pinch:
+            let scale = currentSpread / three.lastSpread
+            three.lastSpread = currentSpread
+            state = .threeDown(three)
+            return scale == 1 ? [] : [.pinch(scale: scale, at: current)]
+        case .undecided, .ignored:
+            break
+        }
+        state = .threeDown(three)
+        return []
     }
 
     /// Mean distance from the centroid: how open the hand is, in points. Comparing this

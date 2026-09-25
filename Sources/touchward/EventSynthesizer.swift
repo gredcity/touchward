@@ -1,3 +1,4 @@
+// Modified for desktop swipe shortcuts, 2026-09-25.
 import CoreGraphics
 import Foundation
 import TouchwardCore
@@ -59,6 +60,14 @@ final class EventSynthesizer {
         case .pinch(let scale, let centre):
             moveCursor(to: centre)
             postZoom(scale: scale)
+
+        case .swipeLeft:
+            postKey(124, flags: .maskControl)
+            log("Three-finger swipe left: next desktop.")
+
+        case .swipeRight:
+            postKey(123, flags: .maskControl)
+            log("Three-finger swipe right: previous desktop.")
 
         case .sessionEnded:
             // Carrying a remainder into an unrelated later gesture can emit a step in the
