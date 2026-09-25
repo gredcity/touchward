@@ -1,0 +1,20 @@
+standard:
+  repository: gredcity/project-repo-standard
+  version: 1.3.1
+project:
+  id: touchward
+  name: Touchward
+  repository: gredcity/touchward
+  role: primary
+  primary_repository: gredcity/touchward
+  owner: Edward Vasquez
+  jira_project: PDF
+profile: software
+lifecycle: build
+capabilities: [user-interface]
+icon: docs/project/icon.png
+features: {}
+evidence:
+  project_index: PROJECT.md
+  current_state: docs/project/state.md
+  architecture_index: docs/project/architecture/index.yaml

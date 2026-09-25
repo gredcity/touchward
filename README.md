@@ -2,6 +2,37 @@
 
 **English** · [🇻🇳 Tiếng Việt](README.vi.md)
 
+## Edward's CreateBoard custom build
+
+This Apache-2.0 fork adds local LG CreateBoard customization under
+[PDF-163](https://grandrapidscitygym.atlassian.net/browse/PDF-163): exactly three fingers
+swiping left advances to the next macOS desktop/full-screen app, and right returns to the
+previous one. Two-finger scrolling and three-finger pinch/spread remain available.
+
+The custom app identity is **Touchward Custom** (`com.edward.touchward`). Its
+`OnScreenKeyboardEnabled` preference defaults to true; setting it to false disables
+automatic keyboard presentation for a physical-keyboard setup. After changing the
+preference, restart the custom app:
+
+```bash
+defaults write com.edward.touchward OnScreenKeyboardEnabled -bool false
+```
+
+The customization remains free and open source with no trial. The custom installation
+uses `/Applications/Touchward Custom.app`; retain `/Applications/Touchward.app` for
+rollback and run only one against the panel. [Current state](docs/project/state.md) records
+installation and physical acceptance separately from test results. Version 1.0.1/build 2
+is installed, its release build succeeds, and all 119 tests pass. The custom app is waiting
+for its macOS Accessibility grant; desktop navigation and keyboard behavior have not yet
+received physical acceptance.
+
+The documentation below is the upstream reference. Its release links install the
+upstream build. Local build outputs, log names, and app names follow `scripts/appconfig.sh`
+and therefore use **Touchward Custom** in this fork; the upstream tested-hardware section
+does not certify the custom LG setup.
+
+---
+
 [![release](https://img.shields.io/github/v/release/nguyenthienthanh/touchward)](https://github.com/nguyenthienthanh/touchward/releases/latest)
 [![npm](https://img.shields.io/npm/v/touchward)](https://www.npmjs.com/package/touchward)
 [![Homebrew](https://img.shields.io/badge/homebrew-nguyenthienthanh%2Ftap-orange)](https://github.com/nguyenthienthanh/homebrew-tap)
