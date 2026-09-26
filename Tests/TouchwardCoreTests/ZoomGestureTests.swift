@@ -2,8 +2,7 @@ import CoreGraphics
 import XCTest
 @testable import TouchwardCore
 
-/// Three fingers zoom. Two fingers already scroll, so spreading and pinching a third finger
-/// in is the gesture left that nothing else claims.
+/// Three fingers zoom while one finger scrolls and two fingers navigate desktops.
 ///
 /// The recognizer reports a *ratio*, not a distance: how much the hand opened since the last
 /// frame. The synthesizer decides what a ratio means on this platform, exactly as it already
@@ -79,7 +78,7 @@ final class ZoomGestureTests: XCTestCase {
         let out = r.handle(hand(spread: 180, centre: CGPoint(x: 500, y: 500), at: 0.05))
         for event in out {
             if case .scroll = event {
-                XCTFail("three fingers zoom; scrolling is the two-finger gesture")
+                XCTFail("three fingers zoom; scrolling is the one-finger gesture")
             }
         }
     }
@@ -105,7 +104,7 @@ final class ZoomGestureTests: XCTestCase {
         XCTAssertEqual(out, [.sessionEnded])
     }
 
-    func testAThirdFingerDuringAScrollTakesOverAsZoom() {
+    func testAThirdFingerDuringATwoFingerGestureTakesOverAsZoom() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 400, 500), (2, 600, 500)], at: 0))
         _ = r.handle(frame([(1, 400, 520), (2, 600, 520)], at: 0.05))

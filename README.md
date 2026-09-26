@@ -2,6 +2,53 @@
 
 **English** · [🇻🇳 Tiếng Việt](README.vi.md)
 
+## Edward's CreateBoard custom build
+
+This Apache-2.0 fork adds local LG CreateBoard customization under
+[PDF-163](https://grandrapidscitygym.atlassian.net/browse/PDF-163). Edward chose to copy the
+Magic Mouse finger counts. The approved version 1.0.2/build 3 mapping is:
+
+| Gesture | Result |
+|---|---|
+| One finger, move | Natural scrolling in both axes |
+| One finger, tap | Click |
+| One finger, hold at least 0.6 seconds, then move | Drag |
+| One finger, hold at least 0.6 seconds, then lift | Right-click |
+| Exactly two fingers, swipe left / right | Next / previous macOS desktop or full-screen app |
+| Two fingers, double-tap | Mission Control |
+| Three or more fingers, pinch / spread | Zoom out / in |
+
+A desktop swipe fires once until all fingers lift. One-finger horizontal movement scrolls
+content; it does not send browser page-back or page-forward shortcuts. This replaces the
+earlier custom mapping of two-finger scrolling and three-finger desktop navigation.
+
+The custom app identity is **Touchward Custom** (`com.edward.touchward`). Its
+`OnScreenKeyboardEnabled` preference defaults to true; setting it to false disables
+automatic keyboard presentation for a physical-keyboard setup. After changing the
+preference, restart the custom app:
+
+```bash
+defaults write com.edward.touchward OnScreenKeyboardEnabled -bool false
+```
+
+The customization remains free and open source with no trial. The custom installation
+uses `/Applications/Touchward Custom.app`; retain `/Applications/Touchward.app` for
+rollback and run only one against the panel. [Current state](docs/project/state.md) records
+installation and physical acceptance separately from test results. Version 1.0.2/build 3
+is installed; all 140 tests, the release build, and signature verification pass. The
+keyboard preference remains false. The replacement app currently reports Accessibility
+not granted and Input Monitoring denied, so its permission must be renewed before the
+new mapping can be tested. Desktop switching and the new gestures have not received
+human acceptance.
+
+The documentation below is the upstream reference. Its release links install the
+upstream build. Local build outputs, log names, and app names follow `scripts/appconfig.sh`
+and therefore use **Touchward Custom** in this fork. The gesture table above describes the
+approved custom mapping; upstream gesture descriptions below describe the upstream build.
+The upstream tested-hardware section does not certify the custom LG setup.
+
+---
+
 [![release](https://img.shields.io/github/v/release/nguyenthienthanh/touchward)](https://github.com/nguyenthienthanh/touchward/releases/latest)
 [![npm](https://img.shields.io/npm/v/touchward)](https://www.npmjs.com/package/touchward)
 [![Homebrew](https://img.shields.io/badge/homebrew-nguyenthienthanh%2Ftap-orange)](https://github.com/nguyenthienthanh/homebrew-tap)

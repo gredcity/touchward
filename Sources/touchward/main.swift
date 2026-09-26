@@ -1,3 +1,4 @@
+// Modified for keyboard preferences and display-preserving relaunch, 2026-09-25.
 import AppKit
 import ApplicationServices
 import CoreGraphics
@@ -138,7 +139,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                     Monitoring list.
                       System Settings → Privacy & Security → Accessibility
                     If it stays stuck, clear the old state and open the app again:
-                      tccutil reset All com.ethannguyen.touchward
+                      tccutil reset All com.edward.touchward
                 """)
             Permissions.openSettings()
             pollUntilGranted()
@@ -227,6 +228,9 @@ final class AppController: NSObject, NSApplicationDelegate {
     private func relaunch() {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
+        if let displayID = ProcessInfo.processInfo.environment["TOUCHWARD_DISPLAY_ID"] {
+            configuration.environment = ["TOUCHWARD_DISPLAY_ID": displayID]
+        }
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL,
                                            configuration: configuration) { _, _ in
             exit(0)
@@ -435,6 +439,13 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func setUpKeyboard() {
+        UserDefaults.standard.register(defaults: ["OnScreenKeyboardEnabled": true])
+        guard UserDefaults.standard.bool(forKey: "OnScreenKeyboardEnabled") else {
+            log("On-screen keyboard disabled; using the physical keyboard.")
+            startFocusPolling()
+            return
+        }
+
         let surface = KeyboardSurface(injector: injector)
         let panel = KeyboardPanel(contentRect: NSRect(x: 0, y: 0, width: 800, height: 300))
         panel.contentView = surface
@@ -538,6 +549,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                 return
             }
 
+            guard self.panel != nil else { return }
             self.focusWatcher.refresh()
 
             // Secure input has no notification either. The AX subrole ("this is a password

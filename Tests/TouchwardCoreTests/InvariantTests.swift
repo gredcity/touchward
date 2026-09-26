@@ -28,10 +28,10 @@ final class InvariantTests: XCTestCase {
         _ = r.handle(frame([(1, 0, 0)], at: 0))
         XCTAssertTrue(r.hasActiveGesture, "one finger down")
 
-        _ = r.handle(frame([(1, 100, 0)], at: 0.05))
+        _ = r.handle(frame([(1, 100, 0)], at: 0.65))
         XCTAssertTrue(r.hasActiveGesture, "dragging")
 
-        _ = r.handle(empty(at: 0.1))
+        _ = r.handle(empty(at: 0.7))
         XCTAssertFalse(r.hasActiveGesture, "after the session ends")
 
         _ = r.handle(frame([(1, 0, 0), (2, 50, 0)], at: 1.0))
@@ -56,9 +56,9 @@ final class InvariantTests: XCTestCase {
     func testTickDoesNotKillADragThatIsStillReceivingReports() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 0, 0)], at: 0))
-        _ = r.handle(frame([(1, 100, 0)], at: 0.05))
+        _ = r.handle(frame([(1, 100, 0)], at: 0.65))
 
-        XCTAssertEqual(r.tick(at: 0.2), [], "a drag 0.15s into its life is not stale")
+        XCTAssertEqual(r.tick(at: 0.8), [], "a drag 0.15s into its life is not stale")
         XCTAssertTrue(r.hasActiveGesture)
     }
 
@@ -67,7 +67,7 @@ final class InvariantTests: XCTestCase {
     func testStaleDragReleasesTheButtonWithoutEndingTheSession() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 0, 0)], at: 0))
-        _ = r.handle(frame([(1, 100, 0)], at: 0.05))
+        _ = r.handle(frame([(1, 100, 0)], at: 0.65))
 
         XCTAssertEqual(r.tick(at: 5.0), [.dragEnded(at: CGPoint(x: 100, y: 0))])
         XCTAssertEqual(r.handle(empty(at: 5.1)), [.sessionEnded])
@@ -76,34 +76,33 @@ final class InvariantTests: XCTestCase {
     // MARK: two fingers leaving one at a time — what hardware actually does
 
     /// Fingers essentially never lift on the same scan. The tap classification has to
-    /// survive the 2 → 1 → 0 sequence, or two-finger right-click never works in practice.
-    func testTwoFingerTapStillRightClicksWhenFingersLiftOneAtATime() {
+    /// survive the 2 → 1 → 0 sequence, or a physical double-tap never works in practice.
+    func testDoubleTapSurvivesFingersLiftingOneAtATime() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0))
         XCTAssertEqual(r.handle(frame([(1, 100, 100)], at: 0.05)), [])
 
-        XCTAssertEqual(r.handle(empty(at: 0.08)),
-                       [.rightClick(at: CGPoint(x: 150, y: 100)), .sessionEnded])
+        XCTAssertEqual(r.handle(empty(at: 0.08)), [.sessionEnded])
+        _ = r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0.2))
+        XCTAssertEqual(r.handle(frame([(1, 100, 100)], at: 0.25)), [])
+        XCTAssertEqual(r.handle(empty(at: 0.28)), [.missionControl, .sessionEnded])
     }
 
-    /// A dropped contact for one frame must not strand the scroll until the whole hand
+    /// A dropped contact for one frame must not strand the swipe until the whole hand
     /// leaves the glass.
-    func testScrollResumesAfterAContactFlickersOut() {
+    func testDesktopSwipeResumesAfterAContactFlickersOut() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0))
-        _ = r.handle(frame([(1, 100, 120), (2, 200, 120)], at: 0.05))
+        _ = r.handle(frame([(1, 130, 100), (2, 230, 100)], at: 0.05))
 
-        XCTAssertEqual(r.handle(frame([(1, 100, 120)], at: 0.10)), [], "settling")
-        XCTAssertEqual(r.handle(frame([(1, 100, 120), (2, 200, 120)], at: 0.15)), [],
-                       "re-seats the centroid, emits nothing")
-        XCTAssertEqual(r.handle(frame([(1, 100, 140), (2, 200, 140)], at: 0.20)),
-                       [.scroll(dx: 0, dy: 20, at: CGPoint(x: 150, y: 140))],
-                       "scrolling works again")
+        XCTAssertEqual(r.handle(frame([(1, 130, 100)], at: 0.10)), [])
+        XCTAssertEqual(r.handle(frame([(1, 300, 100), (2, 400, 100)], at: 0.15)), [],
+                       "a returning contact reanchors the centroid")
+        XCTAssertEqual(r.handle(frame([(1, 370, 100), (2, 470, 100)], at: 0.20)),
+                       [.swipeRight])
     }
 
-    /// Lifting one finger after a scroll must not leave the other one starting a fresh
-    /// one-finger session that clicks on lift.
-    func testOneFingerLingeringAfterAScrollDoesNotClick() {
+    func testOneFingerLingeringAfterTwoFingerMovementDoesNotClick() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0))
         _ = r.handle(frame([(1, 100, 140), (2, 200, 140)], at: 0.05))
@@ -117,11 +116,11 @@ final class InvariantTests: XCTestCase {
     func testDragThenSecondFingerThenLiftDoesNotRightClick() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100)], at: 0))
-        _ = r.handle(frame([(1, 200, 100)], at: 0.05))
-        XCTAssertEqual(r.handle(frame([(1, 200, 100), (2, 300, 100)], at: 0.10)),
+        _ = r.handle(frame([(1, 200, 100)], at: 0.65))
+        XCTAssertEqual(r.handle(frame([(1, 200, 100), (2, 300, 100)], at: 0.70)),
                        [.dragEnded(at: CGPoint(x: 200, y: 100))])
 
-        XCTAssertEqual(r.handle(empty(at: 0.15)), [.sessionEnded],
+        XCTAssertEqual(r.handle(empty(at: 0.75)), [.sessionEnded],
                        "a drag that grew a second finger is not a two-finger tap")
     }
 
@@ -145,12 +144,12 @@ final class InvariantTests: XCTestCase {
 
         XCTAssertEqual(count([frame([(1, 0, 0)], at: 0), empty(at: 0.1)]), 1, "tap")
         XCTAssertEqual(count([frame([(1, 0, 0)], at: 0),
-                              frame([(1, 200, 0)], at: 0.05),
-                              empty(at: 0.1)]), 1, "drag")
+                              frame([(1, 200, 0)], at: 0.65),
+                              empty(at: 0.7)]), 1, "held drag")
         XCTAssertEqual(count([frame([(1, 0, 0), (2, 100, 0)], at: 0),
                               frame([(1, 0, 40), (2, 100, 40)], at: 0.05),
                               frame([(1, 0, 40)], at: 0.1),
-                              empty(at: 0.15)]), 1, "scroll then lift one at a time")
+                              empty(at: 0.15)]), 1, "two-finger gesture then lift one at a time")
         XCTAssertEqual(count([frame([(1, 0, 0)], at: 0),
                               frame([(9, 5, 5)], at: 0.05),
                               empty(at: 0.1)]), 1, "contact id swapped mid-touch")
@@ -189,7 +188,7 @@ final class InvariantTests: XCTestCase {
 
         var dragging = GestureRecognizer()
         _ = dragging.handle(frame([(1, 0, 0)], at: 0))
-        _ = dragging.handle(frame([(1, 100, 0)], at: 0.05))
+        _ = dragging.handle(frame([(1, 100, 0)], at: 0.65))
         XCTAssertEqual(dragging.forceRelease(),
                        [.dragEnded(at: CGPoint(x: 100, y: 0)), .sessionEnded])
 
@@ -212,8 +211,9 @@ final class InvariantTests: XCTestCase {
         XCTAssertEqual(r.handle(frame([(1, 30, 0)], at: 0.02)), [],
                        "30pt is under the raised 50pt threshold")
 
-        XCTAssertEqual(r.tick(at: 0.25), [.rightClick(at: .zero)],
-                       "long press fires at the shortened 0.2s")
+        XCTAssertEqual(r.tick(at: 0.25), [], "a hold waits for its outcome")
+        XCTAssertEqual(r.handle(empty(at: 0.26)), [.rightClick(at: .zero), .sessionEnded],
+                       "the shortened hold threshold arms the right click")
 
         var tap = GestureRecognizer(config: config)
         _ = tap.handle(frame([(1, 0, 0)], at: 0))
@@ -225,7 +225,7 @@ final class InvariantTests: XCTestCase {
         var atThreshold = GestureRecognizer()
         _ = atThreshold.handle(frame([(1, 0, 0)], at: 0))
         XCTAssertEqual(atThreshold.handle(frame([(1, 10, 0)], at: 0.02)), [],
-                       "movement of exactly moveThreshold is not yet a drag")
+                       "movement of exactly moveThreshold is not yet a scroll")
 
         var atTapLimit = GestureRecognizer()
         _ = atTapLimit.handle(frame([(1, 0, 0)], at: 0))
@@ -235,8 +235,9 @@ final class InvariantTests: XCTestCase {
 
         var atLongPress = GestureRecognizer()
         _ = atLongPress.handle(frame([(1, 0, 0)], at: 0))
-        XCTAssertEqual(atLongPress.tick(at: 0.60), [.rightClick(at: .zero)],
-                       "exactly longPressDuration right-clicks")
+        XCTAssertEqual(atLongPress.tick(at: 0.60), [])
+        XCTAssertEqual(atLongPress.handle(empty(at: 0.61)), [.rightClick(at: .zero), .sessionEnded],
+                       "exactly longPressDuration arms the hold")
     }
 
     /// Holding past the tap window but short of the long press should do nothing at all.
