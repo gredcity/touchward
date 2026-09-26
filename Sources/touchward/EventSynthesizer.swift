@@ -1,4 +1,5 @@
-// Modified for desktop swipe shortcuts, 2026-09-25.
+// Modified for Magic Mouse gesture shortcuts, 2026-09-26.
+import AppKit
 import CoreGraphics
 import Foundation
 import TouchwardCore
@@ -63,11 +64,19 @@ final class EventSynthesizer {
 
         case .swipeLeft:
             postKey(124, flags: .maskControl)
-            log("Three-finger swipe left: next desktop.")
+            log("Two-finger swipe left: next desktop.")
 
         case .swipeRight:
             postKey(123, flags: .maskControl)
-            log("Three-finger swipe right: previous desktop.")
+            log("Two-finger swipe right: previous desktop.")
+
+        case .missionControl:
+            guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.exposelauncher"),
+                  NSWorkspace.shared.open(appURL) else {
+                log("Could not open Mission Control.")
+                return
+            }
+            log("Two-finger double-tap: Mission Control.")
 
         case .sessionEnded:
             // Carrying a remainder into an unrelated later gesture can emit a step in the

@@ -1,3 +1,4 @@
+// Modified for Magic Mouse gestures and session cleanup, 2026-09-26.
 import CoreGraphics
 import Foundation
 import TouchwardCore
@@ -99,11 +100,9 @@ final class TouchPipeline {
             log("   → map (\(first.x),\(first.y)) ⇒ (\(Int(mapped.x)),\(Int(mapped.y)))")
         }
 
-        // Whether the panel reports a second finger at all decides whether scrolling can
-        // work; say so once rather than leaving the user to guess why nothing scrolls.
         if frame.contacts.count >= 2, !hasSeenMultitouch {
             hasSeenMultitouch = true
-            log("✅ The panel reports \(frame.contacts.count) contacts — two-finger scrolling works.")
+            log("Multitouch detected: \(frame.contacts.count) contacts.")
         }
 
         // A live touch means the user is not on the mouse — drop any queued cursor return.
@@ -185,10 +184,9 @@ final class TouchPipeline {
                 }
             }
 
+            synthesizer.apply(event)
             if case .sessionEnded = event {
                 cursorReturn.scheduleReturn(to: mainCentre)
-            } else {
-                synthesizer.apply(event)
             }
         }
     }

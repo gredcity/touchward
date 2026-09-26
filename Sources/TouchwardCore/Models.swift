@@ -1,4 +1,4 @@
-// Modified for desktop swipe gestures, 2026-09-25.
+// Modified for Magic Mouse finger gestures, 2026-09-26.
 import CoreGraphics
 import Foundation
 
@@ -67,7 +67,8 @@ public enum GestureEvent: Equatable, Sendable {
     case scroll(dx: CGFloat, dy: CGFloat, at: CGPoint)
     case swipeLeft
     case swipeRight
-    /// Three fingers opened or closed. `scale` is the ratio against the previous frame —
+    case missionControl
+    /// Three or more fingers opened or closed. `scale` is the ratio against the previous frame —
     /// 1.5 means the hand opened by half again — so it composes by multiplication and
     /// carries no notion of what zooming means on any particular platform.
     case pinch(scale: CGFloat, at: CGPoint)

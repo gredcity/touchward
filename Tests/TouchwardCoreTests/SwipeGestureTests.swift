@@ -4,7 +4,7 @@ import XCTest
 
 final class SwipeGestureTests: XCTestCase {
     private func hand(x: CGFloat = 500, y: CGFloat = 500, spread: CGFloat = 100,
-                      ids: [UInt8] = [1, 2, 3], at time: TimeInterval) -> MappedFrame {
+                      ids: [UInt8] = [1, 2], at time: TimeInterval) -> MappedFrame {
         MappedFrame(contacts: ids.enumerated().map { index, id in
             MappedContact(id: id, point: CGPoint(x: x + CGFloat(index - 1) * spread, y: y))
         }, time: time)
@@ -14,7 +14,7 @@ final class SwipeGestureTests: XCTestCase {
         MappedFrame(contacts: [], time: time)
     }
 
-    func testThreeFingerLeftSwipeWaitsForDeliberateMovement() {
+    func testTwoFingerLeftSwipeWaitsForDeliberateMovement() {
         var recognizer = GestureRecognizer()
         XCTAssertEqual(recognizer.handle(hand(at: 0)), [])
 
@@ -22,7 +22,7 @@ final class SwipeGestureTests: XCTestCase {
         XCTAssertEqual(recognizer.handle(hand(x: 438, at: 0.1)), [.swipeLeft])
     }
 
-    func testThreeFingerRightSwipeReportsFingerDirection() {
+    func testTwoFingerRightSwipeReportsFingerDirection() {
         var recognizer = GestureRecognizer()
         _ = recognizer.handle(hand(at: 0))
 
@@ -82,29 +82,29 @@ final class SwipeGestureTests: XCTestCase {
         XCTAssertFalse(recognizer.hasActiveGesture)
     }
 
-    func testStaggeredFingerArrivalStartsSwipeAtThreeFingerFrame() {
+    func testStaggeredFingerArrivalStartsSwipeAtTwoFingerFrame() {
         var recognizer = GestureRecognizer()
         XCTAssertEqual(recognizer.handle(hand(ids: [1], at: 0)), [])
         XCTAssertEqual(recognizer.handle(hand(ids: [1, 2], at: 0.02)), [])
-        XCTAssertEqual(recognizer.handle(hand(at: 0.04)), [])
 
         XCTAssertEqual(recognizer.handle(hand(x: 460, at: 0.08)), [])
         XCTAssertEqual(recognizer.handle(hand(x: 420, at: 0.12)), [.swipeLeft])
     }
 
-    func testAddingThreeFingersEndsAnExistingDragBeforeSwiping() {
+    func testAddingASecondFingerEndsAnExistingDragBeforeSwiping() {
         var recognizer = GestureRecognizer()
         _ = recognizer.handle(hand(ids: [1], at: 0))
-        XCTAssertEqual(recognizer.handle(hand(x: 530, ids: [1], at: 0.05)), [
+        XCTAssertEqual(recognizer.tick(at: 0.6), [])
+        XCTAssertEqual(recognizer.handle(hand(x: 530, ids: [1], at: 0.65)), [
             .dragBegan(at: CGPoint(x: 400, y: 500)),
             .dragMoved(to: CGPoint(x: 430, y: 500)),
         ])
-        XCTAssertEqual(recognizer.handle(hand(at: 0.1)), [
+        XCTAssertEqual(recognizer.handle(hand(at: 0.7)), [
             .dragEnded(at: CGPoint(x: 430, y: 500)),
         ])
 
-        XCTAssertEqual(recognizer.handle(hand(x: 580, at: 0.15)), [.swipeRight])
-        XCTAssertEqual(recognizer.handle(empty(at: 0.2)), [.sessionEnded])
+        XCTAssertEqual(recognizer.handle(hand(x: 580, at: 0.75)), [.swipeRight])
+        XCTAssertEqual(recognizer.handle(empty(at: 0.8)), [.sessionEnded])
     }
 
     func testReassignedContactIDsCannotTurnACentroidJumpIntoASwipe() {
@@ -112,9 +112,9 @@ final class SwipeGestureTests: XCTestCase {
         _ = recognizer.handle(hand(at: 0))
         XCTAssertEqual(recognizer.handle(hand(x: 460, at: 0.05)), [])
 
-        XCTAssertEqual(recognizer.handle(hand(x: 200, ids: [4, 5, 6], at: 0.1)), [])
-        XCTAssertEqual(recognizer.handle(hand(x: 155, ids: [4, 5, 6], at: 0.15)), [])
-        XCTAssertEqual(recognizer.handle(hand(x: 130, ids: [4, 5, 6], at: 0.2)), [.swipeLeft])
+        XCTAssertEqual(recognizer.handle(hand(x: 200, ids: [4, 5], at: 0.1)), [])
+        XCTAssertEqual(recognizer.handle(hand(x: 155, ids: [4, 5], at: 0.15)), [])
+        XCTAssertEqual(recognizer.handle(hand(x: 130, ids: [4, 5], at: 0.2)), [.swipeLeft])
     }
 
     func testContactArrayReorderingDoesNotDiscardSwipeProgress() {
@@ -132,14 +132,14 @@ final class SwipeGestureTests: XCTestCase {
         _ = recognizer.handle(hand(at: 0))
         _ = recognizer.handle(hand(x: 470, at: 0.05))
 
-        XCTAssertEqual(recognizer.handle(hand(x: 900, ids: [1, 2], at: 0.1)), [])
+        XCTAssertEqual(recognizer.handle(hand(x: 900, ids: [1], at: 0.1)), [])
         XCTAssertEqual(recognizer.handle(hand(x: 1000, at: 0.15)), [])
         XCTAssertEqual(recognizer.handle(hand(x: 955, at: 0.2)), [])
         XCTAssertEqual(recognizer.handle(hand(x: 930, at: 0.25)), [.swipeLeft])
     }
 
-    func testFourOrMoreFingersNeverBecomeDesktopSwipesEvenDuringLift() {
-        for ids: [UInt8] in [[1, 2, 3, 4], [1, 2, 3, 4, 5]] {
+    func testThreeOrMoreFingersNeverBecomeDesktopSwipesEvenDuringLift() {
+        for ids: [UInt8] in [[1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]] {
             var recognizer = GestureRecognizer()
             _ = recognizer.handle(hand(ids: ids, at: 0))
 
@@ -150,21 +150,21 @@ final class SwipeGestureTests: XCTestCase {
         }
     }
 
-    func testFourthFingerCancelsAnUncommittedSwipe() {
+    func testThirdFingerCancelsAnUncommittedSwipe() {
         var recognizer = GestureRecognizer()
         _ = recognizer.handle(hand(at: 0))
         _ = recognizer.handle(hand(x: 540, at: 0.05))
 
-        XCTAssertEqual(recognizer.handle(hand(x: 540, ids: [1, 2, 3, 4], at: 0.1)), [])
+        XCTAssertEqual(recognizer.handle(hand(x: 540, ids: [1, 2, 3], at: 0.1)), [])
         XCTAssertEqual(recognizer.handle(hand(x: 580, at: 0.15)), [])
         XCTAssertEqual(recognizer.handle(hand(x: 680, at: 0.2)), [])
     }
 
-    func testDuplicateContactIDsDoNotQualifyAsThreeFingers() {
+    func testDuplicateContactIDsDoNotQualifyAsTwoFingers() {
         var recognizer = GestureRecognizer()
-        _ = recognizer.handle(hand(ids: [1, 1, 2], at: 0))
+        _ = recognizer.handle(hand(ids: [1, 1], at: 0))
 
-        XCTAssertEqual(recognizer.handle(hand(x: 600, ids: [1, 1, 2], at: 0.1)), [])
+        XCTAssertEqual(recognizer.handle(hand(x: 600, ids: [1, 1], at: 0.1)), [])
     }
 
     func testSwipeDirectionLocksBeforeAReversalCanSwitchTheOppositeWay() {
@@ -196,13 +196,13 @@ final class SwipeGestureTests: XCTestCase {
 
     func testCommittedPinchDoesNotSwitchDesktopsWhenItsCentroidDrifts() {
         var recognizer = GestureRecognizer()
-        _ = recognizer.handle(hand(at: 0))
+        _ = recognizer.handle(hand(ids: [1, 2, 3], at: 0))
 
-        XCTAssertEqual(recognizer.handle(hand(x: 505, spread: 150, at: 0.05)), [
+        XCTAssertEqual(recognizer.handle(hand(x: 505, spread: 150, ids: [1, 2, 3], at: 0.05)), [
             .pinch(scale: 1.5, at: CGPoint(x: 505, y: 500)),
         ])
-        XCTAssertEqual(recognizer.handle(hand(x: 700, spread: 150, at: 0.1)), [])
-        let events = recognizer.handle(hand(x: 750, spread: 165, at: 0.15))
+        XCTAssertEqual(recognizer.handle(hand(x: 700, spread: 150, ids: [1, 2, 3], at: 0.1)), [])
+        let events = recognizer.handle(hand(x: 750, spread: 165, ids: [1, 2, 3], at: 0.15))
         guard case .pinch(let scale, let point) = events.first, events.count == 1 else {
             return XCTFail("a pinch stays a pinch until the fingers lift")
         }
@@ -212,11 +212,11 @@ final class SwipeGestureTests: XCTestCase {
 
     func testSmallPinchStepsAccumulateUntilIntentIsClear() {
         var recognizer = GestureRecognizer()
-        _ = recognizer.handle(hand(at: 0))
+        _ = recognizer.handle(hand(ids: [1, 2, 3], at: 0))
 
-        XCTAssertEqual(recognizer.handle(hand(spread: 104, at: 0.05)), [])
-        XCTAssertEqual(recognizer.handle(hand(spread: 108, at: 0.1)), [])
-        let events = recognizer.handle(hand(spread: 112, at: 0.15))
+        XCTAssertEqual(recognizer.handle(hand(spread: 104, ids: [1, 2, 3], at: 0.05)), [])
+        XCTAssertEqual(recognizer.handle(hand(spread: 108, ids: [1, 2, 3], at: 0.1)), [])
+        let events = recognizer.handle(hand(spread: 112, ids: [1, 2, 3], at: 0.15))
         guard case .pinch(let scale, _) = events.first, events.count == 1 else {
             return XCTFail("deliberate slow pinching must still zoom")
         }
@@ -246,7 +246,7 @@ final class SwipeGestureTests: XCTestCase {
         }
     }
 
-    func testSingleFingerTapAndTwoFingerScrollRecoverAfterSwipeSession() {
+    func testSingleFingerTapAndScrollRecoverAfterSwipeSession() {
         var recognizer = GestureRecognizer()
         _ = recognizer.handle(hand(at: 0))
         _ = recognizer.handle(hand(x: 420, at: 0.05))
@@ -256,9 +256,9 @@ final class SwipeGestureTests: XCTestCase {
         XCTAssertEqual(recognizer.handle(empty(at: 0.25)), [
             .leftClick(at: CGPoint(x: 400, y: 500)), .sessionEnded,
         ])
-        XCTAssertEqual(recognizer.handle(hand(ids: [1, 2], at: 0.3)), [])
-        XCTAssertEqual(recognizer.handle(hand(y: 525, ids: [1, 2], at: 0.35)), [
-            .scroll(dx: 0, dy: 25, at: CGPoint(x: 450, y: 525)),
+        XCTAssertEqual(recognizer.handle(hand(ids: [1], at: 0.3)), [])
+        XCTAssertEqual(recognizer.handle(hand(y: 525, ids: [1], at: 0.35)), [
+            .scroll(dx: 0, dy: 25, at: CGPoint(x: 400, y: 525)),
         ])
     }
 }

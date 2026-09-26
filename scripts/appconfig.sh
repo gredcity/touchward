@@ -1,4 +1,4 @@
-# Modified for the Touchward Custom identity, 2026-09-25.
+# Modified for the Touchward Custom identity, 2026-09-26.
 # Single source of truth for the app's identity.
 #
 # Everything downstream — the bundle name, the executable, Info.plist, the code signature,
@@ -11,8 +11,8 @@
 
 APP_NAME="Touchward Custom"
 BUNDLE_ID="com.edward.touchward"
-VERSION="1.0.1"
-BUILD_NUMBER="2"
+VERSION="1.0.2"
+BUILD_NUMBER="3"
 
 # The Swift product name. Fixed, and independent of the display name.
 PRODUCT="touchward"

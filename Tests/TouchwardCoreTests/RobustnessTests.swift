@@ -24,7 +24,7 @@ final class RobustnessTests: XCTestCase {
     func testStaleStreamReleasesAHeldDrag() {
         var r = GestureRecognizer()
         _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: .zero)], time: 0))
-        _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: CGPoint(x: 100, y: 0))], time: 0.1))
+        _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: CGPoint(x: 100, y: 0))], time: 0.7))
 
         // Well past staleDragTimeout: the stream is gone, the button must not stay down.
         let events = r.tick(at: 5.0)
@@ -35,7 +35,7 @@ final class RobustnessTests: XCTestCase {
     func testForceReleaseClosesOutAHeldDrag() {
         var r = GestureRecognizer()
         _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: .zero)], time: 0))
-        _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: CGPoint(x: 100, y: 0))], time: 0.05))
+        _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: CGPoint(x: 100, y: 0))], time: 0.65))
 
         XCTAssertEqual(r.forceRelease(), [.dragEnded(at: CGPoint(x: 100, y: 0)), .sessionEnded])
         XCTAssertEqual(r.forceRelease(), [], "releasing twice must be harmless")
@@ -49,12 +49,14 @@ final class RobustnessTests: XCTestCase {
 
     /// A finger held perfectly still generates no new reports on a change-driven device,
     /// so the long press has to be driven by the clock instead.
-    func testLongPressFiresFromTickWithoutAnyNewFrames() {
+    func testTickArmsAHeldTouchWithoutPostingAnEarlyClick() {
         var r = GestureRecognizer()
         _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: CGPoint(x: 50, y: 60))], time: 0))
 
-        XCTAssertEqual(r.tick(at: 0.65), [.rightClick(at: CGPoint(x: 50, y: 60))])
-        XCTAssertEqual(r.tick(at: 0.70), [], "must not repeat while the finger is still down")
+        XCTAssertEqual(r.tick(at: 0.65), [])
+        XCTAssertEqual(r.tick(at: 0.70), [], "must not click while the finger is still down")
+        XCTAssertEqual(r.handle(MappedFrame(contacts: [], time: 0.75)),
+                       [.rightClick(at: CGPoint(x: 50, y: 60)), .sessionEnded])
     }
 
     /// A tick must never end a session that is merely young — only one that has gone quiet.
@@ -72,9 +74,9 @@ final class RobustnessTests: XCTestCase {
     func testDragEndsWhenTheTrackedFingerIsReplaced() {
         var r = GestureRecognizer()
         _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: .zero)], time: 0))
-        _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: CGPoint(x: 100, y: 0))], time: 0.05))
+        _ = r.handle(MappedFrame(contacts: [MappedContact(id: 1, point: CGPoint(x: 100, y: 0))], time: 0.65))
 
-        let events = r.handle(MappedFrame(contacts: [MappedContact(id: 7, point: CGPoint(x: 900, y: 500))], time: 0.1))
+        let events = r.handle(MappedFrame(contacts: [MappedContact(id: 7, point: CGPoint(x: 900, y: 500))], time: 0.7))
         XCTAssertEqual(events, [.dragEnded(at: CGPoint(x: 100, y: 0))],
                        "the drag closes where it was, but the session lives on — a finger "
                        + "is still down, and ending it would warp the cursor away")
