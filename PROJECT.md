@@ -10,9 +10,11 @@
 - Upstream: [nguyenthienthanh/touchward](https://github.com/nguyenthienthanh/touchward), Apache-2.0
 
 This fork keeps Edward's LG CreateBoard usable with free software on macOS. The current
-change adds three-finger desktop navigation and a preference to disable the on-screen
-keyboard. The original installation remains the rollback; custom-build physical
-acceptance is recorded in [current state](docs/project/state.md).
+change copies Magic Mouse finger counts: one-finger scrolling, two-finger desktop swipes,
+and a two-finger double-tap for Mission Control. The on-screen keyboard remains disabled
+for Edward's physical keyboard. The original installation remains the rollback; installed
+version, validation, and physical acceptance are recorded in
+[current state](docs/project/state.md).
 
 ## Reading Order
 

@@ -7,12 +7,17 @@ and his existing Bluetooth keyboard.
 
 ## Outcomes
 
-- Preserve the two-finger scrolling Edward has confirmed on the upstream app.
-- Add exactly-three-finger horizontal swipes: left advances to the next macOS desktop or
-  full-screen app; right returns to the previous one.
+- Follow Edward's approved Magic Mouse finger counts: one finger scrolls naturally in
+  both axes; exactly two fingers swipe left to the next macOS desktop/full-screen app or
+  right to the previous one, once until every finger lifts.
+- Keep one-finger tap to click. Holding at least 0.6 seconds before movement starts a
+  drag; holding and lifting instead performs a right-click.
+- Map a two-finger double-tap to Mission Control. Preserve zoom through three-or-more
+  finger pinch/spread.
 - Prevent automatic on-screen keyboard presentation when the custom app's
   `OnScreenKeyboardEnabled` preference is false.
-- Preserve tap, drag, two-finger scrolling, and three-finger pinch/spread behavior.
+- Keep one-finger horizontal motion as content scrolling; do not add browser page-back
+  or page-forward shortcuts.
 - Keep the original app available for rollback. Automated tests support, but do not
   replace, Edward's physical acceptance on the board.
 

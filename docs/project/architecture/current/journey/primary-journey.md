@@ -6,9 +6,9 @@ scope: Operator starts Touchward and controls a visible Mac window
 audience: [operator, engineering]
 environment: Local macOS desktop
 owner: Edward Vasquez
-reviewed_on: 2026-09-25
+reviewed_on: 2026-09-26
 question: What must happen before a touch produces input in the intended window?
-verified_commit: db07e1179be5a3a81b0bf7c24e4d2df9bcf1bffb
+verified_commit: 58f5137f4d0cd27c018859c0825c03e07ecf3e5d
 scope_paths: [Sources/touchward/main.swift, Sources/touchward/EventSynthesizer.swift]
 satisfies: [ARCH-SCOPE-JOURNEY-001, ARCH-VIEW-001, ARCH-REL-001]
 elements:
@@ -18,12 +18,12 @@ elements:
 relationships:
   - {id: operator-application, source: operator, destination: application, purpose: Starts touch control and supplies gestures., protocol: App launch and USB touch}
   - {id: operator-macos, source: operator, destination: macos, purpose: Grants access and observes window response., protocol: System Settings and display}
-  - {id: application-macos, source: application, destination: macos, purpose: Posts input after access and display checks., protocol: CGEvent}
+  - {id: application-macos, source: application, destination: macos, purpose: Posts input or opens Mission Control after readiness checks., protocol: CGEvent and NSWorkspace}
 boundaries:
   - {id: touchward-system, name: Touchward system, type: system, members: [application]}
 review:
   reviewer: Codex author check
-  reviewed_on: 2026-09-25
+  reviewed_on: 2026-09-26
   result: pass
   checks: [ARCH-SCOPE-JOURNEY-001, ARCH-VIEW-001, ARCH-REL-001]
 ---
@@ -40,7 +40,7 @@ flowchart TD
     display -->|No| wait[App waits for display or device activation]
     wait --> display
     display -->|Yes| touch[Operator touches the intended window]
-    touch --> input[App posts pointer or keyboard input]
+    touch --> input[App posts input or opens Mission Control]
     input --> result[Operator observes the window response]
     result --> touch
 ```
@@ -50,8 +50,9 @@ flowchart TD
 The custom app's activation and interaction path, checked against `main.swift` and
 `EventSynthesizer.swift`. With the keyboard preference disabled, focusing a text field
 does not construct or show the panel; the physical keyboard remains available. Desktop
-swipes use macOS Control-arrow shortcuts. This is a user journey, not a detailed gesture
-algorithm or a claim of hardware acceptance.
+swipes use macOS Control-arrow shortcuts; two-finger double-tap opens the native Mission
+Control app. This is a user journey, not a detailed gesture algorithm or a claim of
+hardware acceptance.
 
 ## Legend
 
@@ -65,8 +66,11 @@ correct display. The operator can use the physical keyboard while touch is being
 
 ## Open Questions
 
-Edward has confirmed baseline two-finger scrolling. PDF-163's desktop navigation and
-disabled-keyboard behavior still require physical testing on the custom build.
+Edward confirmed baseline upstream two-finger scrolling. The installed 1.0.2 mapping now
+uses one-finger scrolling, two-finger desktop navigation, and double-tap Mission Control.
+Its replacement binary is waiting for renewed Accessibility permission, despite the
+earlier 1.0.1 grant. The complete interaction path and disabled-keyboard behavior still
+require physical acceptance after access is restored.
 
 ## Accessible Description
 
