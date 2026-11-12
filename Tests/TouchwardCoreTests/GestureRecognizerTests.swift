@@ -79,31 +79,31 @@ final class GestureRecognizerTests: XCTestCase {
 
     // MARK: scrolling and two fingers
 
-    func testOneFingerMovementEmitsScrollDisplacement() {
+    /// One finger moving is a mouse drag: it is how a window gets moved by its title bar.
+    func testOneFingerMovementDragsImmediately() {
         var r = GestureRecognizer()
         XCTAssertEqual(r.handle(frame([(1, 100, 100)], at: 0)), [])
 
-        // The finger moves down 20pt.
-        let events = r.handle(frame([(1, 100, 120)], at: 0.05))
-        XCTAssertEqual(events, [.scroll(dx: 0, dy: 20, at: CGPoint(x: 100, y: 120))])
+        XCTAssertEqual(r.handle(frame([(1, 100, 120)], at: 0.05)), [
+            .dragBegan(at: CGPoint(x: 100, y: 100)),
+            .dragMoved(to: CGPoint(x: 100, y: 120)),
+        ], "no hold needed: a held-first drag made windows impossible to move")
+        XCTAssertEqual(r.handle(frame([(1, 145, 130)], at: 0.1)),
+                       [.dragMoved(to: CGPoint(x: 145, y: 130))])
+        XCTAssertEqual(r.handle(empty(at: 0.15)),
+                       [.dragEnded(at: CGPoint(x: 145, y: 130)), .sessionEnded])
     }
 
-    func testScrollDeltaIsPerFrameNotCumulative() {
+    func testOneFingerNeverScrolls() {
         var r = GestureRecognizer()
-        _ = r.handle(frame([(1, 100, 100)], at: 0))
-        _ = r.handle(frame([(1, 100, 120)], at: 0.05))
-
-        XCTAssertEqual(r.handle(frame([(1, 100, 130)], at: 0.1)),
-                       [.scroll(dx: 0, dy: 10, at: CGPoint(x: 100, y: 130))],
-                       "a cumulative delta would report 30 here and scroll far too fast")
-    }
-
-    func testHorizontalScrollIsReported() {
-        var r = GestureRecognizer()
-        _ = r.handle(frame([(1, 100, 100)], at: 0))
-
-        XCTAssertEqual(r.handle(frame([(1, 145, 100)], at: 0.05)),
-                       [.scroll(dx: 45, dy: 0, at: CGPoint(x: 145, y: 100))])
+        var events = r.handle(frame([(1, 100, 100)], at: 0))
+        for i in 1...20 {
+            events += r.handle(frame([(1, 100 + CGFloat(i) * 7, 100 - CGFloat(i) * 5)],
+                                     at: Double(i) * 0.02))
+        }
+        events += r.handle(empty(at: 0.5))
+        XCTAssertFalse(events.contains { if case .scroll = $0 { return true }; return false },
+                       "scrolling is two fingers only")
     }
 
     func testTwoFingerSingleTapDoesNotRightClick() {

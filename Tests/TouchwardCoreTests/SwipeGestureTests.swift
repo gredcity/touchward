@@ -268,7 +268,7 @@ final class SwipeGestureTests: XCTestCase {
         }
     }
 
-    func testSingleFingerTapAndScrollRecoverAfterSwipeSession() {
+    func testSingleFingerTapAndDragRecoverAfterSwipeSession() {
         var recognizer = GestureRecognizer()
         _ = recognizer.handle(hand(at: 0))
         _ = recognizer.handle(hand(x: 420, at: 0.05))
@@ -280,7 +280,7 @@ final class SwipeGestureTests: XCTestCase {
         ])
         XCTAssertEqual(recognizer.handle(hand(ids: [1], at: 0.3)), [])
         XCTAssertEqual(recognizer.handle(hand(y: 525, ids: [1], at: 0.35)), [
-            .scroll(dx: 0, dy: 25, at: CGPoint(x: 400, y: 525)),
+            .dragBegan(at: CGPoint(x: 400, y: 500)), .dragMoved(to: CGPoint(x: 400, y: 525)),
         ])
     }
 }

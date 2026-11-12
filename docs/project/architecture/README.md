@@ -8,8 +8,8 @@ Installation and physical acceptance are tracked separately in
 [current state](../state.md).
 
 The October 23 working-tree update changes the recognizer to two-finger scrolling and
-exactly-three-finger desktop swipes, retaining the one-finger scroll fallback and
-Mission Control double-tap. The October 25 1.0.5/build 7 repair adds safe deferred
+exactly-three-finger desktop swipes and Mission Control double-tap. The November 12
+1.0.9 update removes the one-finger scroll fallback: one-finger movement drags. The October 25 1.0.5/build 7 repair adds safe deferred
 HID removal, wake/reconnect recovery, verified multitouch readiness, stable certificate
 signing and login supervision. It passes 154 tests, the release build, and signature
 verification; installation, permission persistence and physical acceptance are tracked

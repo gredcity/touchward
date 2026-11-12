@@ -21,7 +21,8 @@ public struct GestureConfig: Sendable {
 }
 
 /// Two fingers scroll, pinch, or double-tap Mission Control; exactly three swipe desktops.
-/// One finger also scrolls; holding before moving drags. Three or more can also pinch.
+/// One finger is a mouse: tap clicks, hold-and-lift right-clicks, moving drags (so title
+/// bars move windows). Scrolling is two fingers only. Three or more can also pinch.
 /// Deltas are finger displacement;
 /// the synthesizer owns polarity. Every drag and physical session ends exactly once.
 public struct GestureRecognizer: Sendable {
@@ -68,7 +69,6 @@ public struct GestureRecognizer: Sendable {
         case idle
         case oneDown(id: UInt8, start: CGPoint, startTime: TimeInterval)
         case held(id: UInt8, start: CGPoint)
-        case scrolling(id: UInt8, last: CGPoint)
         case dragging(id: UInt8, last: CGPoint)
         case twoDown(TwoFinger)
         case threeDown(ThreeFinger)
@@ -123,22 +123,18 @@ public struct GestureRecognizer: Sendable {
                 return []
             }
             guard let point = point(of: id, in: frame) else {
+                // Replaced contact: its position is unrelated to `start`, so pressing there
+                // would drag from the wrong place. Wait for the lift, like `.held` does.
                 pendingTap = nil
-                let contact = frame.contacts[0]
-                state = .scrolling(id: contact.id, last: contact.point)
+                state = .consumed
                 return []
             }
-            let held = frame.time - startTime >= config.longPressDuration
             if distance(point, start) > config.moveThreshold {
                 pendingTap = nil
-                if held {
-                    state = .dragging(id: id, last: point)
-                    return [.dragBegan(at: start), .dragMoved(to: point)]
-                }
-                state = .scrolling(id: id, last: point)
-                return [.scroll(dx: point.x - start.x, dy: point.y - start.y, at: point)]
+                state = .dragging(id: id, last: point)
+                return [.dragBegan(at: start), .dragMoved(to: point)]
             }
-            if held {
+            if frame.time - startTime >= config.longPressDuration {
                 pendingTap = nil
                 state = .held(id: id, start: start)
             }
@@ -160,24 +156,6 @@ public struct GestureRecognizer: Sendable {
             guard distance(point, start) > config.moveThreshold else { return [] }
             state = .dragging(id: id, last: point)
             return [.dragBegan(at: start), .dragMoved(to: point)]
-
-        case .scrolling(let id, let last):
-            if count == 0 {
-                state = .idle
-                return [.sessionEnded]
-            }
-            if count >= 2 {
-                beginMultiple(frame, canTap: false)
-                return []
-            }
-            guard let point = point(of: id, in: frame) else {
-                let contact = frame.contacts[0]
-                state = .scrolling(id: contact.id, last: contact.point)
-                return []
-            }
-            guard point != last else { return [] }
-            state = .scrolling(id: id, last: point)
-            return [.scroll(dx: point.x - last.x, dy: point.y - last.y, at: point)]
 
         case .dragging(let id, let last):
             if count == 0 {

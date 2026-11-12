@@ -5,6 +5,20 @@ updated_on: 2026-11-12
 
 # Current State
 
+## November 12 one-finger drag
+
+- Edward could not drag windows: one-finger movement scrolled (moving the pointer with
+  the finger) unless he first held still 0.6 s. He chose mouse-style drag.
+- Version 1.0.9/build 12: one-finger movement past 10 pt presses the left button and
+  drags immediately; the one-finger scroll state is removed, so scrolling is two fingers
+  only. Tap click, hold-and-lift right-click, and all multi-finger gestures are unchanged.
+  A replaced contact ID before movement ends the gesture without pressing.
+- 182 Swift tests pass; the new drag tests failed before the fix. Installed 09:37 UTC with
+  both permissions granted and device seized; installed and built CDHash match
+  `b95a480f4f757fdac973e8b8fe6dcde7f4c3f067`. Prior 1.0.8 bundle and LaunchAgent are in
+  `~/Projects/touchward/backups/touchward-1.0.8-before-one-finger-drag/`.
+  Physical acceptance pending.
+
 ## November 12 cursor recentring repair
 
 - Edward reported the mouse repeatedly jumping to screen centre. Root cause: the
@@ -157,8 +171,8 @@ updated_on: 2026-11-12
 
 - Use free software without a trial or later licence requirement.
 - Two fingers scroll naturally in both axes; a two-finger horizontal pan never switches
-  desktops. One-finger scrolling remains available as a fallback. One-finger tap clicks;
-  hold at least 0.6 seconds then move to drag, or hold then lift to right-click.
+  desktops. One finger never scrolls (November 12). One-finger tap clicks, movement
+  drags immediately, and holding at least 0.6 seconds then lifting right-clicks.
 - Exactly three fingers swiping left means next desktop/full-screen app; right means
   previous. Fire once until every finger lifts. A two-finger double-tap opens Mission
   Control. Two or more fingers support pinch/spread zoom, separated from scrolling or horizontal pan

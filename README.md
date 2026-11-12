@@ -7,21 +7,20 @@
 This Apache-2.0 fork adds local LG CreateBoard customization under
 [PDF-163](https://grandrapidscitygym.atlassian.net/browse/PDF-163). Edward requested two-finger scrolling
 and three-finger desktop navigation on October 23, 2026, and standard two-finger pinch zoom on October 25.
-Version 1.0.7/build 10 uses:
+Version 1.0.9/build 12 uses:
 
 | Gesture | Result |
 |---|---|
-| One finger, move | Natural scrolling in both axes |
+| One finger, move | Drag (moves windows by the title bar, selects text) |
 | One finger, tap | Click |
-| One finger, hold at least 0.6 seconds, then move | Drag |
 | One finger, hold at least 0.6 seconds, then lift | Right-click |
 | Two fingers, move | Natural scrolling in both axes |
 | Exactly three fingers, swipe left / right | Next / previous macOS desktop or full-screen app |
 | Two fingers, double-tap | Mission Control |
 | Two or more fingers, pinch / spread | Zoom out / in |
 
-A desktop swipe fires once until all fingers lift. One-finger horizontal movement scrolls
-content; it does not send browser page-back or page-forward shortcuts. Two-finger scrolling also works horizontally without switching desktops. Two-finger scrolling,
+A desktop swipe fires once until all fingers lift. One finger never scrolls; it does not
+send browser page-back or page-forward shortcuts. Two-finger scrolling also works horizontally without switching desktops. Two-finger scrolling,
 three-finger horizontal swipes, and pinch/spread lock to their initial intent until every
 finger lifts. Spread two fingers apart to zoom in; bring them together to zoom out.
 Zoom uses Command + `=` / Command + `-` in the focused app, so tap the desired window

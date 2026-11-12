@@ -25,18 +25,20 @@ final class MagicMouseGestureTests: XCTestCase {
         return events
     }
 
-    func testOneFingerMotionScrollsBothAxesWithoutPressingAMouseButton() {
+    func testOneFingerMotionDragsBothAxesAndReleasesOnLift() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100)], at: 0))
 
         XCTAssertEqual(r.handle(frame([(1, 130, 120)], at: 0.05)), [
-            .scroll(dx: 30, dy: 20, at: CGPoint(x: 130, y: 120)),
+            .dragBegan(at: CGPoint(x: 100, y: 100)), .dragMoved(to: CGPoint(x: 130, y: 120)),
         ])
         XCTAssertEqual(r.handle(frame([(1, 120, 150)], at: 0.1)), [
-            .scroll(dx: -10, dy: 30, at: CGPoint(x: 120, y: 150)),
+            .dragMoved(to: CGPoint(x: 120, y: 150)),
         ])
         XCTAssertEqual(r.tick(at: 1), [])
-        XCTAssertEqual(r.handle(empty(at: 1.1)), [.sessionEnded])
+        XCTAssertEqual(r.handle(empty(at: 1.1)), [
+            .dragEnded(at: CGPoint(x: 120, y: 150)), .sessionEnded,
+        ])
     }
 
     func testHoldWaitsForLiftBeforeRightClicking() {
@@ -234,16 +236,23 @@ final class MagicMouseGestureTests: XCTestCase {
         XCTAssertEqual(tap(&r, at: 1.3), [.sessionEnded])
     }
 
-    func testContactReplacementCannotCreateAScrollJumpOrUnheldDrag() {
+    func testContactReplacementCannotDragFromTheWrongPlace() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100)], at: 0))
         _ = r.handle(frame([(1, 130, 100)], at: 0.05))
 
-        XCTAssertEqual(r.handle(frame([(7, 800, 400)], at: 0.1)), [])
-        XCTAssertEqual(r.handle(frame([(7, 810, 425)], at: 0.15)), [
-            .scroll(dx: 10, dy: 25, at: CGPoint(x: 810, y: 425)),
+        // Mid-drag: release where the real finger was, never jump to the new contact.
+        XCTAssertEqual(r.handle(frame([(7, 800, 400)], at: 0.1)), [
+            .dragEnded(at: CGPoint(x: 130, y: 100)),
         ])
+        XCTAssertEqual(r.handle(frame([(7, 810, 425)], at: 0.15)), [])
         XCTAssertEqual(r.handle(empty(at: 0.2)), [.sessionEnded])
+
+        // Before any movement: no press at all.
+        _ = r.handle(frame([(1, 100, 100)], at: 1))
+        XCTAssertEqual(r.handle(frame([(7, 800, 400)], at: 1.05)), [])
+        XCTAssertEqual(r.handle(frame([(7, 840, 425)], at: 1.1)), [])
+        XCTAssertEqual(r.handle(empty(at: 1.15)), [.sessionEnded])
     }
 
     func testASecondFingerAfterScrollingCannotBecomeADoubleTap() {
