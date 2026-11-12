@@ -20,7 +20,8 @@ public struct GestureConfig: Sendable {
     public init() {}
 }
 
-/// Two fingers scroll, pinch, or double-tap Mission Control; exactly three swipe desktops.
+/// Two fingers scroll, pinch, tap to right-click, or double-tap Mission Control; exactly
+/// three swipe desktops.
 /// One finger is a mouse: tap clicks, hold-and-lift right-clicks, moving drags (so title
 /// bars move windows). Scrolling is two fingers only. Three or more can also pinch.
 /// Deltas are finger displacement;
@@ -89,7 +90,40 @@ public struct GestureRecognizer: Sendable {
         return true
     }
 
+    /// True while `tick` has work: a touch in progress, or a two-finger right-click waiting
+    /// out the double-tap window with no finger on the glass.
+    public var needsClock: Bool { hasActiveGesture || pendingTap != nil }
+
     public mutating func handle(_ frame: MappedFrame) -> [GestureEvent] {
+        var events: [GestureEvent] = []
+        if case .idle = state { events += expireRightClick(at: frame.time) }
+        return events + resolvingRightClick { $0.process(frame) }
+    }
+
+    public mutating func tick(at time: TimeInterval) -> [GestureEvent] {
+        if case .idle = state { return expireRightClick(at: time) }
+        return resolvingRightClick { $0.advanceClock(to: time) }
+    }
+
+    /// A single two-finger tap is a right-click, held back in `pendingTap` until it is clear
+    /// no second tap follows. No new touch started in time: fire it.
+    private mutating func expireRightClick(at time: TimeInterval) -> [GestureEvent] {
+        guard let tap = pendingTap, time - tap.time > config.doubleTapInterval else { return [] }
+        pendingTap = nil
+        return [.rightClick(at: tap.point)]
+    }
+
+    /// Whatever ends a pending tap other than Mission Control (another gesture, a tap too far
+    /// away) means it was a lone tap after all; deliver its right-click before the new events.
+    private mutating func resolvingRightClick(_ step: (inout GestureRecognizer) -> [GestureEvent]) -> [GestureEvent] {
+        let pending = pendingTap
+        let events = step(&self)
+        guard let pending, pendingTap?.time != pending.time,
+              !events.contains(.missionControl) else { return events }
+        return [.rightClick(at: pending.point)] + events
+    }
+
+    private mutating func process(_ frame: MappedFrame) -> [GestureEvent] {
         let ordered = frame.time >= lastFrameTime
         if !ordered { pendingTap = nil }
         lastFrameTime = max(lastFrameTime, frame.time)
@@ -188,7 +222,7 @@ public struct GestureRecognizer: Sendable {
         }
     }
 
-    public mutating func tick(at time: TimeInterval) -> [GestureEvent] {
+    private mutating func advanceClock(to time: TimeInterval) -> [GestureEvent] {
         switch state {
         case .oneDown(let id, let start, let startTime):
             guard time - startTime >= config.longPressDuration else { return [] }

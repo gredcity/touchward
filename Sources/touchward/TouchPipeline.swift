@@ -56,12 +56,13 @@ final class TouchPipeline {
         self.returnTarget = Self.cursorReturnTarget(touchDisplay: touchDisplay, mainDisplay: mainDisplay)
     }
 
-    /// Drives the clock-dependent half of the recognizer: long press on a still finger, and
-    /// the backstop that releases a drag whose report stream died.
+    /// Drives the clock-dependent half of the recognizer: long press on a still finger, the
+    /// delayed two-finger right-click, and the backstop that releases a drag whose report
+    /// stream died.
     func start() {
         heartbeat?.invalidate()
         let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self, self.recognizer.hasActiveGesture else { return }
+            guard let self, self.recognizer.needsClock else { return }
             self.emit(self.recognizer.tick(at: Clock.now()))
         }
         // Common mode: in default mode the heartbeat stalls while a control in our own

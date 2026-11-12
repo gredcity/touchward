@@ -110,7 +110,8 @@ final class TwoFingerZoomTests: XCTestCase {
                 _ = r.handle(end(at: 0.05))
             }
             _ = r.handle(hand(spread: 50, at: 0.10))
-            XCTAssertEqual(r.handle(hand(spread: 56, at: 0.15)), [
+            let earlier: [GestureEvent] = hasEarlierTap ? [.rightClick(at: CGPoint(x: 500, y: 500))] : []
+            XCTAssertEqual(r.handle(hand(spread: 56, at: 0.15)), earlier + [
                 .pinch(scale: 1.12, at: CGPoint(x: 500, y: 500)),
             ])
             XCTAssertEqual(r.handle(end(at: 0.20)), [.sessionEnded])

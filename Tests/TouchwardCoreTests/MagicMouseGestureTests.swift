@@ -70,11 +70,43 @@ final class MagicMouseGestureTests: XCTestCase {
         ])
     }
 
-    func testTwoFingerSingleTapIsInert() {
+    /// Right-click waits out the double-tap window so a Mission Control double-tap never
+    /// leaves a stray context menu behind.
+    func testTwoFingerTapRightClicksOnceTheDoubleTapWindowPasses() {
         var r = GestureRecognizer()
-        _ = r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0))
+        XCTAssertEqual(tap(&r, at: 0), [.sessionEnded])
+        XCTAssertTrue(r.needsClock, "the heartbeat must keep ticking to deliver it")
 
-        XCTAssertEqual(r.handle(empty(at: 0.1)), [.sessionEnded])
+        XCTAssertEqual(r.tick(at: 0.3), [], "still inside the double-tap window")
+        XCTAssertEqual(r.tick(at: 0.5), [.rightClick(at: CGPoint(x: 150, y: 100))])
+        XCTAssertEqual(r.tick(at: 1), [])
+        XCTAssertFalse(r.needsClock)
+    }
+
+    func testDoubleTapNeverRightClicks() {
+        var r = GestureRecognizer()
+        var events = tap(&r, at: 0)
+        events += tap(&r, at: 0.2, x: 110)
+        events += r.tick(at: 1)
+        XCTAssertEqual(events, [.sessionEnded, .missionControl, .sessionEnded])
+    }
+
+    func testAnotherGestureDeliversThePendingRightClickFirst() {
+        var r = GestureRecognizer()
+        _ = tap(&r, at: 0)
+        _ = r.handle(frame([(1, 400, 400)], at: 0.15))
+
+        XCTAssertEqual(r.handle(empty(at: 0.2)), [
+            .rightClick(at: CGPoint(x: 150, y: 100)),
+            .leftClick(at: CGPoint(x: 400, y: 400)), .sessionEnded,
+        ])
+        XCTAssertEqual(r.tick(at: 1), [])
+    }
+
+    func testForceReleaseDropsAPendingRightClick() {
+        var r = GestureRecognizer()
+        _ = tap(&r, at: 0)
+        XCTAssertEqual(r.forceRelease(), [])
         XCTAssertEqual(r.tick(at: 1), [])
     }
 
@@ -111,7 +143,8 @@ final class MagicMouseGestureTests: XCTestCase {
         for (time, x): (TimeInterval, CGFloat) in [(0.6, 100), (0.2, 300)] {
             var r = GestureRecognizer()
             _ = tap(&r, at: 0)
-            XCTAssertEqual(tap(&r, at: time, x: x), [.sessionEnded])
+            // The first tap was a lone tap after all: its right-click, not Mission Control.
+            XCTAssertEqual(tap(&r, at: time, x: x), [.rightClick(at: CGPoint(x: 150, y: 100)), .sessionEnded])
         }
     }
 
@@ -128,7 +161,7 @@ final class MagicMouseGestureTests: XCTestCase {
         _ = tap(&r, at: 0)
         _ = r.handle(two(at: 0.2))
 
-        XCTAssertEqual(r.handle(empty(at: 0.6)), [.sessionEnded])
+        XCTAssertEqual(r.handle(empty(at: 0.6)), [.rightClick(at: CGPoint(x: 150, y: 100)), .sessionEnded])
         XCTAssertEqual(tap(&r, at: 0.7), [.sessionEnded])
     }
 
@@ -138,6 +171,7 @@ final class MagicMouseGestureTests: XCTestCase {
         _ = r.handle(two(at: 0.2))
 
         XCTAssertEqual(r.handle(frame([(1, 70, 100), (2, 230, 100)], at: 0.25)), [
+            .rightClick(at: CGPoint(x: 150, y: 100)),
             .pinch(scale: 1.6, at: CGPoint(x: 150, y: 100)),
         ])
         XCTAssertEqual(r.handle(empty(at: 0.3)), [.sessionEnded])
@@ -150,7 +184,7 @@ final class MagicMouseGestureTests: XCTestCase {
         _ = r.handle(two(at: 0.2))
 
         XCTAssertEqual(r.handle(frame([(1, 100, 100)], at: 0.25)), [])
-        XCTAssertEqual(r.handle(frame([(1, 140, 100)], at: 0.27)), [])
+        XCTAssertEqual(r.handle(frame([(1, 140, 100)], at: 0.27)), [.rightClick(at: CGPoint(x: 150, y: 100))])
         XCTAssertEqual(r.handle(empty(at: 0.3)), [.sessionEnded])
         XCTAssertEqual(tap(&r, at: 0.4), [.sessionEnded])
     }
@@ -159,7 +193,7 @@ final class MagicMouseGestureTests: XCTestCase {
         var r = GestureRecognizer()
         _ = tap(&r, at: 0)
         _ = r.handle(two(at: 0.2))
-        XCTAssertEqual(r.handle(two(at: 0.25, ids: [7, 8])), [])
+        XCTAssertEqual(r.handle(two(at: 0.25, ids: [7, 8])), [.rightClick(at: CGPoint(x: 150, y: 100))])
         XCTAssertEqual(r.handle(empty(at: 0.3)), [.sessionEnded])
         XCTAssertEqual(tap(&r, at: 0.4), [.sessionEnded])
     }
@@ -208,6 +242,7 @@ final class MagicMouseGestureTests: XCTestCase {
         _ = tap(&r, at: 0)
         _ = r.handle(two(at: 0.15))
         XCTAssertEqual(r.handle(two(at: 0.2, x: 180)), [
+            .rightClick(at: CGPoint(x: 150, y: 100)),
             .scroll(dx: 80, dy: 0, at: CGPoint(x: 230, y: 100)),
         ])
         XCTAssertEqual(r.handle(empty(at: 0.25)), [.sessionEnded])

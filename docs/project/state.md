@@ -5,6 +5,20 @@ updated_on: 2026-11-12
 
 # Current State
 
+## November 12 two-finger right-click
+
+- Edward asked for a two-finger tap to right-click. He chose to keep the two-finger
+  double-tap for Mission Control, so the right-click waits out the 0.35 s double-tap
+  window after lift. Another gesture starting sooner delivers the right-click first; a
+  double-tap never right-clicks; quit/unplug drops a pending one.
+- Version 1.0.10/build 13: the recognizer's `needsClock` keeps the heartbeat ticking
+  while a right-click is pending with no finger down.
+- 185 Swift tests pass; the four new right-click tests failed before the fix. Installed
+  10:01 UTC with both permissions granted and device seized; installed and built CDHash
+  match `43b5d784400bc9001215c89bd945e47c4970872b`. Prior 1.0.9 bundle and LaunchAgent
+  are in `~/Projects/touchward/backups/touchward-1.0.9-before-two-finger-right-click/`.
+  Physical acceptance pending.
+
 ## November 12 one-finger drag
 
 - Edward could not drag windows: one-finger movement scrolled (moving the pointer with
@@ -173,6 +187,8 @@ updated_on: 2026-11-12
 - Two fingers scroll naturally in both axes; a two-finger horizontal pan never switches
   desktops. One finger never scrolls (November 12). One-finger tap clicks, movement
   drags immediately, and holding at least 0.6 seconds then lifting right-clicks.
+- A two-finger tap right-clicks after the 0.35 s double-tap window (November 12); a
+  two-finger double-tap opens Mission Control with no right-click.
 - Exactly three fingers swiping left means next desktop/full-screen app; right means
   previous. Fire once until every finger lifts. A two-finger double-tap opens Mission
   Control. Two or more fingers support pinch/spread zoom, separated from scrolling or horizontal pan

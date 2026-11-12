@@ -100,7 +100,8 @@ final class TwoFingerScrollTests: XCTestCase {
                 _ = r.handle(hand(ids: [], at: 0.05))
             }
             _ = r.handle(hand(at: 0.1))
-            XCTAssertEqual(r.handle(hand(y: 110, at: 0.15)), [
+            let earlier: [GestureEvent] = hasEarlierTap ? [.rightClick(at: CGPoint(x: 150, y: 100))] : []
+            XCTAssertEqual(r.handle(hand(y: 110, at: 0.15)), earlier + [
                 .scroll(dx: 0, dy: 10, at: CGPoint(x: 150, y: 110)),
             ])
             XCTAssertEqual(r.handle(hand(ids: [], at: 0.2)), [.sessionEnded])

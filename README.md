@@ -7,7 +7,7 @@
 This Apache-2.0 fork adds local LG CreateBoard customization under
 [PDF-163](https://grandrapidscitygym.atlassian.net/browse/PDF-163). Edward requested two-finger scrolling
 and three-finger desktop navigation on October 23, 2026, and standard two-finger pinch zoom on October 25.
-Version 1.0.9/build 12 uses:
+Version 1.0.10/build 13 uses:
 
 | Gesture | Result |
 |---|---|
@@ -15,6 +15,7 @@ Version 1.0.9/build 12 uses:
 | One finger, tap | Click |
 | One finger, hold at least 0.6 seconds, then lift | Right-click |
 | Two fingers, move | Natural scrolling in both axes |
+| Two fingers, tap | Right-click (about 0.35 s after lift, once no second tap follows) |
 | Exactly three fingers, swipe left / right | Next / previous macOS desktop or full-screen app |
 | Two fingers, double-tap | Mission Control |
 | Two or more fingers, pinch / spread | Zoom out / in |

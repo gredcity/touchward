@@ -12,6 +12,8 @@ and his existing Bluetooth keyboard.
   right to the previous one, once until every finger lifts.
 - Keep one-finger tap to click. One-finger movement drags immediately; holding at least
   0.6 seconds and lifting without moving performs a right-click.
+- Map a two-finger tap to right-click, delivered once the double-tap window passes so
+  a two-finger double-tap still opens Mission Control without a stray menu.
 - Map a two-finger double-tap to Mission Control. Preserve zoom through three-or-more
   finger pinch/spread.
 - Prevent automatic on-screen keyboard presentation when the custom app's
