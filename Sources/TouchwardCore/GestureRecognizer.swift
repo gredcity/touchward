@@ -1,118 +1,209 @@
+// Modified for CreateBoard scroll and desktop gestures, 2026-10-23.
 import CoreGraphics
 import Foundation
 
 public struct GestureConfig: Sendable {
     public var tapMaxDuration: TimeInterval = 0.30
     public var longPressDuration: TimeInterval = 0.60
-    /// Movement in points beyond which a touch is a drag, not a tap.
     public var moveThreshold: CGFloat = 10
-    /// Backstop for a drag whose report stream died (unplug, sleep, dropped final report).
-    /// Deliberately generous: a change-driven controller sends nothing while a finger rests,
-    /// so a short timeout would cut legitimate slow drags short.
+    public var swipeThreshold: CGFloat = 60
+    public var doubleTapInterval: TimeInterval = 0.35
+    public var doubleTapDistance: CGFloat = 40
+    /// Mean radius in display points; closer contacts make ratios amplify tiny jitter.
+    public var minimumPinchSpread: CGFloat = 12
+    public var pinchNoiseThreshold: CGFloat = 4
+    public var pinchReversalThreshold: CGFloat = 12
+    /// A change-driven controller sends nothing while a finger rests, so this backstop
+    /// releases a held button without claiming that the physical touch session ended.
     public var staleDragTimeout: TimeInterval = 2.0
 
     public init() {}
 }
 
-/// Trackpad-shaped state machine: one finger points and drags, two fingers scroll.
-/// Feed it mapped frames in order; it returns the events that frame produced.
-///
-/// Splitting one-finger drag from two-finger scroll avoids guessing intent from a single
-/// contact's velocity, and matches the muscle memory macOS already teaches. Scroll deltas
-/// are raw finger displacement — the synthesizer owns polarity so this type stays free of
-/// platform conventions.
-///
-/// Two invariants the tests pin down, because breaking either is user-visible damage:
-/// every `dragBegan` is matched by exactly one `dragEnded`, and `sessionEnded` fires
-/// exactly once per physical touch session (it arms a cursor warp, so a spurious one
-/// yanks the pointer away mid-touch).
+/// Two fingers scroll, pinch, tap to right-click, or double-tap Mission Control; exactly
+/// three swipe desktops.
+/// One finger is a mouse: tap clicks, hold-and-lift right-clicks, moving drags (so title
+/// bars move windows). Scrolling is two fingers only. Three or more can also pinch.
+/// Deltas are finger displacement;
+/// the synthesizer owns polarity. Every drag and physical session ends exactly once.
 public struct GestureRecognizer: Sendable {
     public var config: GestureConfig
 
-    /// Shared by `.twoDown` and `.settling` so a scroll that momentarily drops a contact
-    /// can resume, and so a tap is still classified correctly when the fingers leave one
-    /// at a time — which is what actually happens on real hardware.
+    private enum TwoFingerMode {
+        case undecided
+        case scrolling
+        case pinch
+        case ignored
+    }
+
     private struct TwoFinger {
         var startTime: TimeInterval
-        var lastCentroid: CGPoint
-        var moved: Bool
-        /// True when these fingers arrived during an existing gesture (e.g. a drag). Such
-        /// a sequence must never be reclassified as a two-finger tap.
-        var wasGesture: Bool
-        var contactCount: Int
-        /// Mean distance from the centroid, for the three-finger zoom. Held alongside the
-        /// centroid so a hand that changes finger count re-seeds both at once.
-        var lastSpread: CGFloat = 0
+        var contacts: [MappedContact]
+        var start: CGPoint
+        var last: CGPoint
+        var startSpread: CGFloat
+        var lastSpread: CGFloat
+        var canTap: Bool
+        var needsReanchor = false
+        var mode: TwoFingerMode = .undecided
+        var pinchDirection: CGFloat = 0
+    }
+
+    private enum ThreeFingerMode {
+        case undecided
+        case horizontal(direction: CGFloat)
+        case pinch
+        case ignored
+    }
+
+    private struct ThreeFinger {
+        var contactIDs: [UInt8]
+        var canSwipe: Bool
+        var start: CGPoint
+        var startSpread: CGFloat
+        var lastSpread: CGFloat
+        var mode: ThreeFingerMode = .undecided
+        var pinchDirection: CGFloat = 0
     }
 
     private enum State {
         case idle
         case oneDown(id: UInt8, start: CGPoint, startTime: TimeInterval)
+        case held(id: UInt8, start: CGPoint)
         case dragging(id: UInt8, last: CGPoint)
-        /// Right click already emitted; ignore everything until the finger lifts.
-        case longPressed
         case twoDown(TwoFinger)
-        /// Three or more fingers: zooming.
-        case threeDown(TwoFinger)
-        /// Fewer than two fingers remain, but the hand has not left the glass.
-        case settling(TwoFinger)
+        case threeDown(ThreeFinger)
+        case consumed
     }
 
     private var state: State = .idle
     private var lastFrameTime: TimeInterval = 0
+    private var pendingTap: (time: TimeInterval, point: CGPoint)?
 
     public init(config: GestureConfig = GestureConfig()) {
         self.config = config
     }
 
-    /// True while a gesture is in flight — i.e. a pointer button may be held down.
-    /// `TouchPipeline` gates its heartbeat on this, so a wrong answer here silently
-    /// disables the long press and the stale-drag backstop.
+    /// Gates the production heartbeat for held touches and the stale-drag backstop.
     public var hasActiveGesture: Bool {
         if case .idle = state { return false }
         return true
     }
 
+    /// True while `tick` has work: a touch in progress, or a two-finger right-click waiting
+    /// out the double-tap window with no finger on the glass.
+    public var needsClock: Bool { hasActiveGesture || pendingTap != nil }
+
+    /// Rare recovery paths taken since the last drain. Ordinary gestures add nothing, so the
+    /// app can log every entry: an occasional glitch then leaves evidence behind.
+    private var anomalies: [String] = []
+
+    public mutating func drainAnomalies() -> [String] {
+        defer { anomalies.removeAll() }
+        return anomalies
+    }
+
     public mutating func handle(_ frame: MappedFrame) -> [GestureEvent] {
-        // Never let an out-of-order report push the staleness deadline backwards.
+        var events: [GestureEvent] = []
+        if case .idle = state { events += expireRightClick(at: frame.time) }
+        return events + resolvingRightClick { $0.process(frame) }
+    }
+
+    public mutating func tick(at time: TimeInterval) -> [GestureEvent] {
+        if case .idle = state { return expireRightClick(at: time) }
+        return resolvingRightClick { $0.advanceClock(to: time) }
+    }
+
+    /// A single two-finger tap is a right-click, held back in `pendingTap` until it is clear
+    /// no second tap follows. No new touch started in time: fire it.
+    private mutating func expireRightClick(at time: TimeInterval) -> [GestureEvent] {
+        guard let tap = pendingTap, time - tap.time > config.doubleTapInterval else { return [] }
+        pendingTap = nil
+        return [.rightClick(at: tap.point)]
+    }
+
+    /// Whatever ends a pending tap other than Mission Control (another gesture, a tap too far
+    /// away) means it was a lone tap after all; deliver its right-click before the new events.
+    private mutating func resolvingRightClick(_ step: (inout GestureRecognizer) -> [GestureEvent]) -> [GestureEvent] {
+        let pending = pendingTap
+        let events = step(&self)
+        guard let pending, pendingTap?.time != pending.time,
+              !events.contains(.missionControl) else { return events }
+        return [.rightClick(at: pending.point)] + events
+    }
+
+    private mutating func process(_ frame: MappedFrame) -> [GestureEvent] {
+        let ordered = frame.time >= lastFrameTime
+        if !ordered {
+            pendingTap = nil
+            anomalies.append(String(format: "frame %.3fs older than the last one", lastFrameTime - frame.time))
+        }
         lastFrameTime = max(lastFrameTime, frame.time)
         let count = frame.contacts.count
 
         switch state {
         case .idle:
-            return begin(frame, count: count)
+            switch count {
+            case 0:
+                break
+            case 1:
+                let contact = frame.contacts[0]
+                state = .oneDown(id: contact.id, start: contact.point, startTime: frame.time)
+            default:
+                beginMultiple(frame, canTap: ordered)
+            }
+            return []
 
         case .oneDown(let id, let start, let startTime):
             if count == 0 {
                 state = .idle
+                pendingTap = nil
+                if frame.time - startTime >= config.longPressDuration {
+                    return [.rightClick(at: start), .sessionEnded]
+                }
                 return isWithinTapWindow(frame.time, since: startTime)
-                    ? [.leftClick(at: start), .sessionEnded]
-                    : [.sessionEnded]
+                    ? [.leftClick(at: start), .sessionEnded] : [.sessionEnded]
             }
             if count >= 2 {
-                // More fingers reclassify the gesture; the pending tap is void.
-                state = count >= 3
-                    ? .threeDown(twoFinger(frame, wasGesture: true))
-                    : .twoDown(twoFinger(frame, wasGesture: false))
+                beginMultiple(frame, canTap: ordered && frame.time - startTime < config.longPressDuration)
                 return []
             }
             guard let point = point(of: id, in: frame) else {
-                // The controller re-assigned the contact ID. The finger never left the
-                // glass, so ending the session here would warp the cursor away mid-touch;
-                // re-seed against the new ID instead.
-                reseed(frame)
+                // Replaced contact: its position is unrelated to `start`, so pressing there
+                // would drag from the wrong place. Wait for the lift, like `.held` does.
+                anomalies.append("contact \(id) replaced before it moved; ignoring until lift")
+                pendingTap = nil
+                state = .consumed
                 return []
             }
-
             if distance(point, start) > config.moveThreshold {
+                pendingTap = nil
                 state = .dragging(id: id, last: point)
                 return [.dragBegan(at: start), .dragMoved(to: point)]
             }
             if frame.time - startTime >= config.longPressDuration {
-                state = .longPressed
-                return [.rightClick(at: start)]
+                pendingTap = nil
+                state = .held(id: id, start: start)
             }
             return []
+
+        case .held(let id, let start):
+            if count == 0 {
+                state = .idle
+                return [.rightClick(at: start), .sessionEnded]
+            }
+            if count >= 2 {
+                beginMultiple(frame, canTap: false)
+                return []
+            }
+            guard let point = point(of: id, in: frame) else {
+                anomalies.append("held contact \(id) replaced; ignoring until lift")
+                state = .consumed
+                return []
+            }
+            guard distance(point, start) > config.moveThreshold else { return [] }
+            state = .dragging(id: id, last: point)
+            return [.dragBegan(at: start), .dragMoved(to: point)]
 
         case .dragging(let id, let last):
             if count == 0 {
@@ -120,146 +211,51 @@ public struct GestureRecognizer: Sendable {
                 return [.dragEnded(at: last), .sessionEnded]
             }
             if count >= 2 {
-                state = count >= 3
-                    ? .threeDown(twoFinger(frame, wasGesture: true))
-                    : .twoDown(twoFinger(frame, wasGesture: true))
+                beginMultiple(frame, canTap: false)
                 return [.dragEnded(at: last)]
             }
             guard let point = point(of: id, in: frame) else {
-                // Close the drag where it was rather than teleport it onto the new finger,
-                // but keep the session alive — a finger is still down.
-                reseed(frame)
+                anomalies.append("dragging contact \(id) replaced; drag released")
+                state = .consumed
                 return [.dragEnded(at: last)]
             }
-
             guard point != last else { return [] }
             state = .dragging(id: id, last: point)
             return [.dragMoved(to: point)]
 
-        case .longPressed:
+        case .twoDown(var two):
+            if !ordered { two.canTap = false }
+            return handleTwo(frame, previous: two)
+
+        case .threeDown(let three):
+            return handleThree(frame, previous: three)
+
+        case .consumed:
             guard count == 0 else { return [] }
             state = .idle
             return [.sessionEnded]
-
-        case .twoDown(var two):
-            if count == 0 {
-                state = .idle
-                return finishTwoFinger(two, at: frame.time)
-            }
-            if count == 1 {
-                state = .settling(two)
-                return []
-            }
-            if count >= 3 {
-                // A third finger arrives: this is a zoom now, and it must not also emit the
-                // scroll implied by a centroid that just jumped onto a new contact set.
-                state = .threeDown(twoFinger(frame, wasGesture: true))
-                return []
-            }
-            guard count == two.contactCount else {
-                // A third finger landed (or one of three lifted). Diffing across a changed
-                // contact set would emit one large bogus scroll delta.
-                two.contactCount = count
-                two.lastCentroid = centroid(frame)
-                state = .twoDown(two)
-                return []
-            }
-
-            let current = centroid(frame)
-            let dx = current.x - two.lastCentroid.x
-            let dy = current.y - two.lastCentroid.y
-            guard dx != 0 || dy != 0 else { return [] }
-
-            two.lastCentroid = current
-            two.moved = true
-            state = .twoDown(two)
-            return [.scroll(dx: dx, dy: dy, at: current)]
-
-        case .threeDown(var three):
-            if count == 0 {
-                state = .idle
-                return finishTwoFinger(three, at: frame.time)
-            }
-            if count < 3 {
-                // Fingers leave one at a time. Settling keeps the session alive without
-                // letting the tail of a zoom be read as a two-finger tap.
-                state = .settling(three)
-                return []
-            }
-            guard count == three.contactCount else {
-                // The finger count changed: a spread measured across a different set of
-                // contacts would be a step the hand never made.
-                state = .threeDown(reseeded(three, from: frame))
-                return []
-            }
-
-            let spread = spread(frame)
-            // A hand reported as three coincident points has no spread to divide by, and
-            // inf would trap the moment anything downstream turned it into an integer.
-            guard three.lastSpread > 0, spread > 0 else {
-                three.lastSpread = spread
-                state = .threeDown(three)
-                return []
-            }
-
-            let scale = spread / three.lastSpread
-            guard scale != 1 else { return [] }
-
-            three.lastSpread = spread
-            three.lastCentroid = centroid(frame)
-            three.moved = true
-            state = .threeDown(three)
-            return [.pinch(scale: scale, at: centroid(frame))]
-
-        case .settling(var two):
-            if count == 0 {
-                state = .idle
-                return finishTwoFinger(two, at: frame.time)
-            }
-            if count >= 3 {
-                state = .threeDown(reseeded(two, from: frame))
-                return []
-            }
-            if count >= 2 {
-                // The dropped contact came back — resume scrolling from a fresh centroid
-                // rather than stranding the gesture until the whole hand lifts.
-                two.contactCount = count
-                two.lastCentroid = centroid(frame)
-                state = .twoDown(two)
-                return []
-            }
-            return []
         }
     }
 
-    /// Clock-driven half of the machine. A perfectly still finger produces no new reports
-    /// on a change-driven controller, so the long press cannot be discovered by frames
-    /// alone; and a drag whose stream died must not leave the button held forever.
-    public mutating func tick(at time: TimeInterval) -> [GestureEvent] {
+    private mutating func advanceClock(to time: TimeInterval) -> [GestureEvent] {
         switch state {
-        case .oneDown(_, let start, let startTime):
+        case .oneDown(let id, let start, let startTime):
             guard time - startTime >= config.longPressDuration else { return [] }
-            state = .longPressed
-            return [.rightClick(at: start)]
-
+            pendingTap = nil
+            state = .held(id: id, start: start)
+            return []
         case .dragging(_, let last):
             guard time - lastFrameTime > config.staleDragTimeout else { return [] }
-            // Release the button, but withhold sessionEnded: the finger may simply be
-            // resting, and sessionEnded would warp the cursor off the touchscreen while
-            // the user is still touching it. A real zero-contact frame, or forceRelease,
-            // ends the session.
-            state = .settling(TwoFinger(startTime: lastFrameTime, lastCentroid: last,
-                                        moved: true, wasGesture: true, contactCount: 1))
+            anomalies.append(String(format: "no report for %.1fs mid-drag; drag released", time - lastFrameTime))
+            state = .consumed
             return [.dragEnded(at: last)]
-
         default:
             return []
         }
     }
 
-    /// Unconditionally closes out whatever is in flight. Called on quit and on device
-    /// removal so a pointer button is never left logically pressed.
     public mutating func forceRelease() -> [GestureEvent] {
+        pendingTap = nil
         switch state {
         case .idle:
             return []
@@ -272,49 +268,221 @@ public struct GestureRecognizer: Sendable {
         }
     }
 
-    // MARK: helpers
-
-    private mutating func begin(_ frame: MappedFrame, count: Int) -> [GestureEvent] {
-        switch count {
-        case 0:
-            return []
-        case 1:
-            let contact = frame.contacts[0]
-            state = .oneDown(id: contact.id, start: contact.point, startTime: frame.time)
-        case 2:
-            state = .twoDown(twoFinger(frame, wasGesture: false))
-        default:
-            // A whole hand landing at once is a zoom from its very first frame, and never
-            // a two-finger tap on the way out.
-            state = .threeDown(twoFinger(frame, wasGesture: true))
+    private mutating func beginMultiple(_ frame: MappedFrame, canTap: Bool) {
+        if frame.contacts.count >= 3 {
+            pendingTap = nil
+            state = .threeDown(threeFinger(frame))
+        } else {
+            let unique = Set(frame.contacts.map(\.id)).count == 2
+            if !canTap || !unique { pendingTap = nil }
+            state = .twoDown(TwoFinger(startTime: frame.time, contacts: frame.contacts,
+                                      start: centroid(frame), last: centroid(frame),
+                                      startSpread: spread(frame), lastSpread: spread(frame),
+                                      canTap: canTap && unique,
+                                      mode: unique ? .undecided : .ignored))
         }
+    }
+
+    private mutating func handleTwo(_ frame: MappedFrame, previous: TwoFinger) -> [GestureEvent] {
+        var two = previous
+        let count = frame.contacts.count
+        if count == 0 {
+            state = .idle
+            return finishTwoFinger(two, at: frame.time)
+        }
+        if case .pinch = two.mode,
+           count != 2 || frame.contacts.map(\.id).sorted() != two.contacts.map(\.id).sorted()
+            || spread(frame) < config.minimumPinchSpread {
+            // A lift, merged tips, or changed contact set ends zoom immediately. Never
+            // resume it from trailing/rediscovered contacts before a full physical lift.
+            anomalies.append("two-finger zoom cut short by a contact change; ignoring until lift")
+            state = .consumed
+            return []
+        }
+        if count >= 3 {
+            beginMultiple(frame, canTap: false)
+            return []
+        }
+        if frame.contacts.contains(where: { contact in
+            guard let anchor = two.contacts.first(where: { $0.id == contact.id }) else { return true }
+            return distance(contact.point, anchor.point) > config.moveThreshold
+        }) {
+            two.canTap = false
+            pendingTap = nil
+        }
+        if count == 1 {
+            two.needsReanchor = true
+            state = .twoDown(two)
+            return []
+        }
+
+        let ids = frame.contacts.map(\.id).sorted()
+        if Set(ids).count != 2 {
+            two.canTap = false
+            two.mode = .ignored
+            pendingTap = nil
+        }
+        let current = centroid(frame)
+        let currentSpread = spread(frame)
+        if two.needsReanchor || ids != two.contacts.map(\.id).sorted()
+            || two.startSpread <= 0 || currentSpread <= 0 {
+            two.canTap = false
+            pendingTap = nil
+            two.contacts = frame.contacts
+            two.start = current
+            two.last = current
+            two.startSpread = currentSpread
+            two.lastSpread = currentSpread
+            two.needsReanchor = false
+            state = .twoDown(two)
+            return []
+        }
+
+        if case .undecided = two.mode {
+            let travel = distance(current, two.start)
+            let spreadChange = abs(currentSpread - two.startSpread)
+            if travel >= config.moveThreshold, travel > spreadChange * 1.5 {
+                two.canTap = false
+                pendingTap = nil
+                two.mode = .scrolling
+            } else if spreadChange >= max(6, two.startSpread * 0.08), spreadChange >= travel {
+                two.canTap = false
+                pendingTap = nil
+                if two.startSpread >= config.minimumPinchSpread,
+                   currentSpread >= config.minimumPinchSpread {
+                    two.mode = .pinch
+                } else {
+                    two.start = current
+                    two.last = current
+                    two.startSpread = currentSpread
+                    two.lastSpread = currentSpread
+                }
+            }
+        }
+        if case .scrolling = two.mode {
+            let dx = current.x - two.last.x
+            let dy = current.y - two.last.y
+            two.last = current
+            state = .twoDown(two)
+            return dx == 0 && dy == 0 ? [] : [.scroll(dx: dx, dy: dy, at: current)]
+        }
+        if case .pinch = two.mode {
+            let scale = stabilizedPinchScale(currentSpread, last: &two.lastSpread,
+                                             direction: &two.pinchDirection)
+            state = .twoDown(two)
+            return scale.map { [.pinch(scale: $0, at: current)] } ?? []
+        }
+        state = .twoDown(two)
         return []
     }
 
-    private mutating func reseed(_ frame: MappedFrame) {
-        guard let contact = frame.contacts.first else {
+    private func threeFinger(_ frame: MappedFrame) -> ThreeFinger {
+        let ids = frame.contacts.map(\.id).sorted()
+        let currentSpread = spread(frame)
+        return ThreeFinger(contactIDs: ids, canSwipe: ids.count == 3 && Set(ids).count == 3,
+                           start: centroid(frame),
+                           startSpread: currentSpread, lastSpread: currentSpread)
+    }
+
+    private mutating func handleThree(_ frame: MappedFrame, previous: ThreeFinger) -> [GestureEvent] {
+        let count = frame.contacts.count
+        guard count > 0 else {
             state = .idle
-            return
+            return [.sessionEnded]
         }
-        state = .oneDown(id: contact.id, start: contact.point, startTime: frame.time)
+        var three = previous
+        if case .pinch = three.mode,
+           frame.contacts.map(\.id).sorted() != three.contactIDs
+            || spread(frame) < config.minimumPinchSpread {
+            anomalies.append("three-finger zoom cut short by a contact change; ignoring until lift")
+            state = .consumed
+            return []
+        }
+        guard count >= 3 else {
+            three.contactIDs = []
+            state = .threeDown(three)
+            return []
+        }
+
+        let ids = frame.contacts.map(\.id).sorted()
+        let current = centroid(frame)
+        let currentSpread = spread(frame)
+        // A fourth contact or duplicate IDs cannot qualify as a desktop swipe,
+        // including after it lifts again. Committed pinches already stop on contact change.
+        if count != 3 || Set(ids).count != 3 {
+            three.canSwipe = false
+            if case .horizontal = three.mode { three.mode = .ignored }
+        }
+        if Set(ids).count != count { three.mode = .ignored }
+        guard ids == three.contactIDs, three.startSpread > 0, currentSpread > 0 else {
+            three.contactIDs = ids
+            three.start = current
+            three.startSpread = currentSpread
+            three.lastSpread = currentSpread
+            state = .threeDown(three)
+            return []
+        }
+
+        if case .undecided = three.mode {
+            let travel = distance(current, three.start)
+            let spreadChange = abs(currentSpread - three.startSpread)
+            if travel >= config.moveThreshold, travel > spreadChange * 1.5 {
+                let dx = current.x - three.start.x
+                let dy = current.y - three.start.y
+                if three.canSwipe, abs(dx) >= abs(dy) * 1.5 {
+                    three.mode = .horizontal(direction: dx < 0 ? -1 : 1)
+                } else if !three.canSwipe || abs(dy) >= abs(dx) * 1.5 {
+                    three.mode = .ignored
+                }
+            } else if spreadChange >= max(6, three.startSpread * 0.08), spreadChange > travel {
+                if three.startSpread >= config.minimumPinchSpread,
+                   currentSpread >= config.minimumPinchSpread {
+                    three.mode = .pinch
+                } else {
+                    three.start = current
+                    three.startSpread = currentSpread
+                    three.lastSpread = currentSpread
+                }
+            }
+        }
+
+        switch three.mode {
+        case .horizontal(let direction):
+            let dx = current.x - three.start.x
+            let dy = current.y - three.start.y
+            if direction * dx >= config.swipeThreshold, abs(dx) >= abs(dy) * 1.5 {
+                state = .consumed
+                return [direction < 0 ? .swipeLeft : .swipeRight]
+            }
+        case .pinch:
+            let scale = stabilizedPinchScale(currentSpread, last: &three.lastSpread,
+                                             direction: &three.pinchDirection)
+            state = .threeDown(three)
+            return scale.map { [.pinch(scale: $0, at: current)] } ?? []
+        case .undecided, .ignored:
+            break
+        }
+        state = .threeDown(three)
+        return []
     }
 
-    private func twoFinger(_ frame: MappedFrame, wasGesture: Bool) -> TwoFinger {
-        TwoFinger(startTime: frame.time, lastCentroid: centroid(frame),
-                  moved: false, wasGesture: wasGesture, contactCount: frame.contacts.count,
-                  lastSpread: spread(frame))
-    }
-
-    /// Re-anchors an in-flight multi-finger gesture on the contacts present now, keeping
-    /// how it started. Used whenever the contact set changes, so the next frame is measured
-    /// against something real instead of reporting the change itself as a movement.
-    private func reseeded(_ existing: TwoFinger, from frame: MappedFrame) -> TwoFinger {
-        var updated = existing
-        updated.contactCount = frame.contacts.count
-        updated.lastCentroid = centroid(frame)
-        updated.lastSpread = spread(frame)
-        updated.wasGesture = true
-        return updated
+    /// Keep the last accepted spread as the anchor, so small movements accumulate but
+    /// jitter cannot repeatedly alternate zoom directions around the same hand position.
+    private func stabilizedPinchScale(_ current: CGFloat, last: inout CGFloat,
+                                      direction: inout CGFloat) -> CGFloat? {
+        guard current.isFinite, last.isFinite, last > 0 else { return nil }
+        let delta = current - last
+        guard delta != 0 else { return nil }
+        let nextDirection: CGFloat = delta > 0 ? 1 : -1
+        let reversing = direction != 0 && direction != nextDirection
+        let threshold = reversing
+            ? max(config.pinchReversalThreshold, last * 0.15)
+            : max(config.pinchNoiseThreshold, last * 0.02)
+        guard abs(delta) >= threshold else { return nil }
+        let scale = current / last
+        last = current
+        direction = nextDirection
+        return scale
     }
 
     /// Mean distance from the centroid: how open the hand is, in points. Comparing this
@@ -326,10 +494,20 @@ public struct GestureRecognizer: Sendable {
         return total / CGFloat(frame.contacts.count)
     }
 
-    private func finishTwoFinger(_ two: TwoFinger, at time: TimeInterval) -> [GestureEvent] {
-        let wasTap = !two.moved && !two.wasGesture
-            && isWithinTapWindow(time, since: two.startTime)
-        return wasTap ? [.rightClick(at: two.lastCentroid), .sessionEnded] : [.sessionEnded]
+    private mutating func finishTwoFinger(_ two: TwoFinger, at time: TimeInterval) -> [GestureEvent] {
+        guard two.canTap, isWithinTapWindow(time, since: two.startTime) else {
+            pendingTap = nil
+            return [.sessionEnded]
+        }
+        if let previous = pendingTap,
+           two.startTime >= previous.time,
+           two.startTime - previous.time <= config.doubleTapInterval,
+           distance(two.start, previous.point) <= config.doubleTapDistance {
+            pendingTap = nil
+            return [.missionControl, .sessionEnded]
+        }
+        pendingTap = (time, two.start)
+        return [.sessionEnded]
     }
 
     /// A negative interval means the reports arrived out of order or the clock moved.

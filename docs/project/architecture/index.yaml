@@ -1,0 +1,14 @@
+contract_version: 1
+current_lifecycle: build
+views:
+  system-context:
+    path: current/context/system-context.md
+    status: current
+  containers:
+    path: current/structure/containers.md
+    status: current
+  primary-journey:
+    path: current/journey/primary-journey.md
+    status: current
+active_targets: []
+waivers: []

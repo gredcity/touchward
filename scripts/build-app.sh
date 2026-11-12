@@ -64,8 +64,8 @@ IDENTITY="${SIGNING_IDENTITY:-}"
 if [ -n "$IDENTITY" ] && security find-identity -v -p codesigning | grep -q "$IDENTITY"; then
   echo "▸ Signing with \"$IDENTITY\"…"
 else
-  echo "▸ Signing ad-hoc (no certificate yet — run scripts/make-signing-cert.sh so TCC grants survive a rebuild)…"
-  IDENTITY="-"
+  echo "✗ Configured signing identity is unavailable. Refusing an ad-hoc replacement that loses Accessibility permission."
+  exit 1
 fi
 
 codesign --force --deep --sign "$IDENTITY" \

@@ -30,21 +30,19 @@ final class GestureRecognizerTests: XCTestCase {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100)], at: 0))
 
-        // Held far past tapMaxDuration but never moved: the long-press already fired,
-        // so the lift must not also produce a left click.
+        // Holding arms the drag; lifting without movement chooses a right click.
         _ = r.handle(frame([(1, 100, 100)], at: 0.7))
-        XCTAssertEqual(r.handle(empty(at: 0.8)), [.sessionEnded])
+        XCTAssertEqual(r.handle(empty(at: 0.8)), [.rightClick(at: CGPoint(x: 100, y: 100)), .sessionEnded])
     }
 
-    func testLongPressEmitsRightClickOnceWithoutWaitingForLift() {
+    func testLongPressDefersRightClickUntilLift() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 300, 400)], at: 0))
 
-        XCTAssertEqual(r.handle(frame([(1, 300, 400)], at: 0.65)),
-                       [.rightClick(at: CGPoint(x: 300, y: 400))])
+        XCTAssertEqual(r.handle(frame([(1, 300, 400)], at: 0.65)), [])
         XCTAssertEqual(r.handle(frame([(1, 300, 400)], at: 0.9)), [],
                        "long press must not repeat while the finger stays down")
-        XCTAssertEqual(r.handle(empty(at: 1.0)), [.sessionEnded])
+        XCTAssertEqual(r.handle(empty(at: 1.0)), [.rightClick(at: CGPoint(x: 300, y: 400)), .sessionEnded])
     }
 
     func testMovingBeforeTheLongPressCancelsIt() {
@@ -60,12 +58,12 @@ final class GestureRecognizerTests: XCTestCase {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100)], at: 0))
 
-        XCTAssertEqual(r.handle(frame([(1, 160, 100)], at: 0.05)),
+        XCTAssertEqual(r.handle(frame([(1, 160, 100)], at: 0.65)),
                        [.dragBegan(at: CGPoint(x: 100, y: 100)),
                         .dragMoved(to: CGPoint(x: 160, y: 100))])
-        XCTAssertEqual(r.handle(frame([(1, 200, 100)], at: 0.1)),
+        XCTAssertEqual(r.handle(frame([(1, 200, 100)], at: 0.7)),
                        [.dragMoved(to: CGPoint(x: 200, y: 100))])
-        XCTAssertEqual(r.handle(empty(at: 0.15)),
+        XCTAssertEqual(r.handle(empty(at: 0.75)),
                        [.dragEnded(at: CGPoint(x: 200, y: 100)), .sessionEnded])
     }
 
@@ -79,41 +77,41 @@ final class GestureRecognizerTests: XCTestCase {
                        [.leftClick(at: CGPoint(x: 100, y: 100)), .sessionEnded])
     }
 
-    // MARK: two fingers
+    // MARK: scrolling and two fingers
 
-    func testTwoFingerDragEmitsScrollOfTheCentroidDelta() {
+    /// One finger moving is a mouse drag: it is how a window gets moved by its title bar.
+    func testOneFingerMovementDragsImmediately() {
         var r = GestureRecognizer()
-        XCTAssertEqual(r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0)), [])
+        XCTAssertEqual(r.handle(frame([(1, 100, 100)], at: 0)), [])
 
-        // Both fingers move down 20pt: centroid moves down 20pt.
-        let events = r.handle(frame([(1, 100, 120), (2, 200, 120)], at: 0.05))
-        XCTAssertEqual(events, [.scroll(dx: 0, dy: 20, at: CGPoint(x: 150, y: 120))])
+        XCTAssertEqual(r.handle(frame([(1, 100, 120)], at: 0.05)), [
+            .dragBegan(at: CGPoint(x: 100, y: 100)),
+            .dragMoved(to: CGPoint(x: 100, y: 120)),
+        ], "no hold needed: a held-first drag made windows impossible to move")
+        XCTAssertEqual(r.handle(frame([(1, 145, 130)], at: 0.1)),
+                       [.dragMoved(to: CGPoint(x: 145, y: 130))])
+        XCTAssertEqual(r.handle(empty(at: 0.15)),
+                       [.dragEnded(at: CGPoint(x: 145, y: 130)), .sessionEnded])
     }
 
-    func testScrollDeltaIsPerFrameNotCumulative() {
+    func testOneFingerNeverScrolls() {
         var r = GestureRecognizer()
-        _ = r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0))
-        _ = r.handle(frame([(1, 100, 120), (2, 200, 120)], at: 0.05))
-
-        XCTAssertEqual(r.handle(frame([(1, 100, 130), (2, 200, 130)], at: 0.1)),
-                       [.scroll(dx: 0, dy: 10, at: CGPoint(x: 150, y: 130))],
-                       "a cumulative delta would report 30 here and scroll far too fast")
+        var events = r.handle(frame([(1, 100, 100)], at: 0))
+        for i in 1...20 {
+            events += r.handle(frame([(1, 100 + CGFloat(i) * 7, 100 - CGFloat(i) * 5)],
+                                     at: Double(i) * 0.02))
+        }
+        events += r.handle(empty(at: 0.5))
+        XCTAssertFalse(events.contains { if case .scroll = $0 { return true }; return false },
+                       "scrolling is two fingers only")
     }
 
-    func testHorizontalScrollIsReported() {
-        var r = GestureRecognizer()
-        _ = r.handle(frame([(1, 100, 100), (2, 100, 200)], at: 0))
-
-        XCTAssertEqual(r.handle(frame([(1, 145, 100), (2, 145, 200)], at: 0.05)),
-                       [.scroll(dx: 45, dy: 0, at: CGPoint(x: 145, y: 150))])
-    }
-
-    func testTwoFingerTapEmitsRightClick() {
+    func testTwoFingerSingleTapDoesNotRightClick() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0))
 
         XCTAssertEqual(r.handle(empty(at: 0.1)),
-                       [.rightClick(at: CGPoint(x: 150, y: 100)), .sessionEnded])
+                       [.sessionEnded])
     }
 
     /// Landing a second finger mid-gesture must not leave a stray left click behind.
@@ -130,9 +128,9 @@ final class GestureRecognizerTests: XCTestCase {
     func testSecondFingerDuringADragEndsTheDrag()  {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100)], at: 0))
-        _ = r.handle(frame([(1, 200, 100)], at: 0.05))
+        _ = r.handle(frame([(1, 200, 100)], at: 0.65))
 
-        let events = r.handle(frame([(1, 200, 100), (2, 300, 100)], at: 0.1))
+        let events = r.handle(frame([(1, 200, 100), (2, 300, 100)], at: 0.7))
         XCTAssertEqual(events, [.dragEnded(at: CGPoint(x: 200, y: 100))])
     }
 

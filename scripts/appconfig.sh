@@ -1,3 +1,4 @@
+# Modified for the Touchward Custom identity, 2026-09-26.
 # Single source of truth for the app's identity.
 #
 # Everything downstream — the bundle name, the executable, Info.plist, the code signature,
@@ -8,10 +9,10 @@
 # the old identity do not carry over and Accessibility / Input Monitoring must be granted
 # again. Change them deliberately, not casually.
 
-APP_NAME="Touchward"
-BUNDLE_ID="com.ethannguyen.touchward"
-VERSION="1.0.0"
-BUILD_NUMBER="1"
+APP_NAME="Touchward Custom"
+BUNDLE_ID="com.edward.touchward"
+VERSION="1.0.11"
+BUILD_NUMBER="14"
 
 # The Swift product name. Fixed, and independent of the display name.
 PRODUCT="touchward"
@@ -22,5 +23,6 @@ OUT_DIR="Artifacts"
 # Stable signing identity. TCC remembers Accessibility against the app's designated
 # requirement; with an ad-hoc signature that includes the binary hash, so every rebuild
 # looked like a brand new app and the grant was lost. A certificate keeps it constant.
-# Create it once with scripts/make-signing-cert.sh. Empty falls back to ad-hoc.
-SIGNING_IDENTITY="Touchward Local Signing"
+# Reuse the existing Apple Development identity; fail the build if unavailable.
+# Do not silently fall back to ad-hoc signing and invalidate the installed grant.
+SIGNING_IDENTITY="Apple Development: EDWARD VASQUEZ (DXNW232RR6)"

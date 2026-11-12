@@ -14,6 +14,9 @@ TARGET="/Applications/${APP_NAME}.app"
 
 [ -d "$APP" ] || { echo "✗ No $APP yet — run scripts/build-app.sh first"; exit 1; }
 
+# Suspend supervision before replacing the executable.
+launchctl bootout "gui/$(id -u)/${BUNDLE_ID}" 2>/dev/null || true
+
 if pgrep -f "${APP_NAME}" >/dev/null 2>&1; then
   echo "▸ Already running — quitting it before replacing…"
   pkill -f "${APP_NAME}" || true
@@ -33,10 +36,12 @@ fi
 
 echo
 echo "✓ Installed ${APP_NAME} ${VERSION}"
+bash scripts/install-launch-agent.sh
 echo
 echo "Run:   open -a \"${APP_NAME}\""
 echo "Log:   tail -f ~/Library/Logs/${APP_NAME}.log"
-echo "Quit:  pkill -f ${APP_NAME}"
+echo "Stop automatic recovery: launchctl bootout gui/$(id -u)/${BUNDLE_ID}"
+echo "Then quit: pkill -f ${APP_NAME}"
 echo
 echo "The first run needs permission (the app waits until it is granted):"
 echo "  System Settings → Privacy & Security → Input Monitoring → ${APP_NAME}"

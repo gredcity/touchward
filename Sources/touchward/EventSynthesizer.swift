@@ -1,3 +1,5 @@
+// Modified for Magic Mouse gesture shortcuts, 2026-09-26.
+import AppKit
 import CoreGraphics
 import Foundation
 import TouchwardCore
@@ -60,55 +62,85 @@ final class EventSynthesizer {
             moveCursor(to: centre)
             postZoom(scale: scale)
 
+        case .swipeLeft:
+            postDesktopSwitch(right: true)
+
+        case .swipeRight:
+            postDesktopSwitch(right: false)
+
+        case .missionControl:
+            guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.exposelauncher"),
+                  NSWorkspace.shared.open(appURL) else {
+                log("Could not open Mission Control.")
+                return
+            }
+            log("Two-finger double-tap: Mission Control.")
+
         case .sessionEnded:
             // Carrying a remainder into an unrelated later gesture can emit a step in the
             // wrong direction on its first frame.
             residualX = 0
             residualY = 0
-            zoomResidual = 0
+            zoomStepper.reset()
+            if zoomShortcutsInSession > 0 {
+                log("Zoom session ended: \(zoomShortcutsInSession) shortcuts posted.")
+                zoomShortcutsInSession = 0
+            }
             // The cursor is about to be warped home by CursorReturn, so a remembered
             // position from this session would suppress a needed move in the next one.
             lastCursorPoint = nil
         }
     }
 
-    /// How far the hand must open before one zoom step is sent, as a ratio. Each step is a
-    /// Command + `=` or Command + `-`, which is what View ▸ Zoom In / Zoom Out is bound to
-    /// in nearly every Mac app.
-    ///
-    /// There is no public CGEvent for a magnification gesture, so the choice is between
-    /// this and Command + scroll. Command + scroll is aimed at the window under the pointer,
-    /// which sounds better until an app that does not implement it scrolls the document
-    /// instead: the zoom gesture would move the page. A zoom keystroke an app does not
-    /// implement does nothing at all, which is the failure worth having.
-    private let zoomStep: CGFloat = 1.10
-
-    /// Ratios multiply, so they are accumulated in log space: two frames of 1.05 make one
-    /// step, and no single frame has to be large enough to trigger on its own.
-    private var zoomResidual: CGFloat = 0
+    /// The core limits shortcuts to one every 120 ms, drops excess motion, and resets
+    /// on lift. No queued zoom work may run after the touch gesture ends.
+    private var zoomStepper = ZoomStepper()
+    private var zoomShortcutsInSession = 0
+    private var zoomBatchesLogged = 0
 
     private func postZoom(scale: CGFloat) {
-        guard scale > 0, scale.isFinite else { return }
-
-        zoomResidual += CoreGraphics.log(scale)
-        let threshold = CoreGraphics.log(zoomStep)
-        guard threshold > 0, abs(zoomResidual) >= threshold else { return }
-
-        // A fast spread can cross several steps in one frame; send them all, or a quick
-        // gesture would be quietly clipped to a single step.
-        let steps = Int((abs(zoomResidual) / threshold).rounded(.towardZero))
-        let zoomingIn = zoomResidual > 0
-        zoomResidual -= CGFloat(steps) * threshold * (zoomingIn ? 1 : -1)
-
-        for _ in 0..<min(steps, 8) {
-            postKey(zoomingIn ? Self.equalsKey : Self.minusKey, flags: .maskCommand)
+        let direction = zoomStepper.consume(scale: scale, at: Clock.now())
+        guard direction != 0 else { return }
+        zoomShortcutsInSession += 1
+        if zoomBatchesLogged < 30 {
+            zoomBatchesLogged += 1
+            log("Zoom shortcut: \(direction > 0 ? "in" : "out")")
         }
+        postKey(direction > 0 ? Self.equalsKey : Self.minusKey, flags: .maskCommand)
     }
 
     /// ANSI key codes. Command + `=` rather than Command + `+`: the shift needed to reach
     /// `+` changes what the app sees, and Zoom In is bound to the unshifted key.
     private static let equalsKey: CGKeyCode = 24
     private static let minusKey: CGKeyCode = 27
+
+    /// Constructs events without posting, so keyboard transport can be checked without
+    /// changing the user's desktop or requiring Accessibility access during tests.
+    static func desktopSwitchEvents(right: Bool) -> (CGEvent, CGEvent)? {
+        // Mission Control can ignore a private/session source on Tahoe. Arrow events
+        // use the HID source and secondary-fn flag, retained through the arrow release.
+        // Keep ordinary zoom shortcuts on their existing private source.
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let down = CGEvent(keyboardEventSource: source, virtualKey: right ? 124 : 123, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: right ? 124 : 123, keyDown: false)
+        else { return nil }
+        down.setIntegerValueField(.eventSourceUserData, value: marker)
+        up.setIntegerValueField(.eventSourceUserData, value: marker)
+        down.flags = [.maskControl, .maskSecondaryFn]
+        up.flags = down.flags
+        return (down, up)
+    }
+
+    private func postDesktopSwitch(right: Bool) {
+        guard let (down, up) = Self.desktopSwitchEvents(right: right) else {
+            log("Could not construct desktop-switch key events.")
+            return
+        }
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+        log(right ? "Three-finger swipe left: requested next desktop."
+                  : "Three-finger swipe right: requested previous desktop.")
+    }
 
     private func postKey(_ key: CGKeyCode, flags: CGEventFlags) {
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true),

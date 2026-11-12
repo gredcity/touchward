@@ -2,8 +2,7 @@ import CoreGraphics
 import XCTest
 @testable import TouchwardCore
 
-/// Three fingers zoom. Two fingers already scroll, so spreading and pinching a third finger
-/// in is the gesture left that nothing else claims.
+/// Three fingers can pinch to zoom or pan horizontally to navigate desktops.
 ///
 /// The recognizer reports a *ratio*, not a distance: how much the hand opened since the last
 /// frame. The synthesizer decides what a ratio means on this platform, exactly as it already
@@ -79,9 +78,34 @@ final class ZoomGestureTests: XCTestCase {
         let out = r.handle(hand(spread: 180, centre: CGPoint(x: 500, y: 500), at: 0.05))
         for event in out {
             if case .scroll = event {
-                XCTFail("three fingers zoom; scrolling is the two-finger gesture")
+                XCTFail("three fingers zoom; scrolling is the one-finger gesture")
             }
         }
+    }
+
+    func testSmallReversalsAfterThreeFingerPinchAreIgnored() {
+        var r = GestureRecognizer()
+        _ = r.handle(hand(spread: 100, at: 0))
+        _ = r.handle(hand(spread: 150, at: 0.05))
+        XCTAssertEqual(r.handle(hand(spread: 139, at: 0.10)), [])
+        XCTAssertEqual(r.handle(hand(spread: 151, at: 0.15)), [])
+    }
+
+    func testCommittedThreeFingerPinchStopsOnContactLoss() {
+        var r = GestureRecognizer()
+        _ = r.handle(hand(spread: 100, at: 0))
+        _ = r.handle(hand(spread: 150, at: 0.05))
+        XCTAssertEqual(r.handle(frame([(1, 400, 500), (2, 500, 500)], at: 0.10)), [])
+        XCTAssertEqual(r.handle(hand(spread: 300, at: 0.15)), [])
+        XCTAssertEqual(r.handle(hand(spread: 150, at: 0.20)), [])
+        XCTAssertEqual(r.handle(empty(at: 0.25)), [.sessionEnded])
+    }
+
+    func testCloseTogetherThreeFingersCanStillSwitchDesktops() {
+        var r = GestureRecognizer()
+        _ = r.handle(hand(spread: 10, at: 0))
+        XCTAssertEqual(r.handle(hand(spread: 10, centre: CGPoint(x: 580, y: 500), at: 0.05)),
+                       [.swipeRight])
     }
 
     func testAStillHandEmitsNothing() {
@@ -105,7 +129,7 @@ final class ZoomGestureTests: XCTestCase {
         XCTAssertEqual(out, [.sessionEnded])
     }
 
-    func testAThirdFingerDuringAScrollTakesOverAsZoom() {
+    func testAThirdFingerDuringATwoFingerGestureTakesOverAsZoom() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 400, 500), (2, 600, 500)], at: 0))
         _ = r.handle(frame([(1, 400, 520), (2, 600, 520)], at: 0.05))

@@ -2,6 +2,72 @@
 
 **English** · [🇻🇳 Tiếng Việt](README.vi.md)
 
+## Edward's CreateBoard custom build
+
+This Apache-2.0 fork adds local LG CreateBoard customization under
+[PDF-163](https://grandrapidscitygym.atlassian.net/browse/PDF-163). Edward requested two-finger scrolling
+and three-finger desktop navigation on October 23, 2026, and standard two-finger pinch zoom on October 25.
+Version 1.0.11/build 14 uses:
+
+| Gesture | Result |
+|---|---|
+| One finger, move | Drag (moves windows by the title bar, selects text) |
+| One finger, tap | Click |
+| One finger, hold at least 0.6 seconds, then lift | Right-click |
+| Two fingers, move | Natural scrolling in both axes |
+| Two fingers, tap | Right-click (about 0.35 s after lift, once no second tap follows) |
+| Exactly three fingers, swipe left / right | Next / previous macOS desktop or full-screen app |
+| Two fingers, double-tap | Mission Control |
+| Two or more fingers, pinch / spread | Zoom out / in |
+
+A desktop swipe fires once until all fingers lift. One finger never scrolls; it does not
+send browser page-back or page-forward shortcuts. Two-finger scrolling also works horizontally without switching desktops. Two-finger scrolling,
+three-finger horizontal swipes, and pinch/spread lock to their initial intent until every
+finger lifts. Spread two fingers apart to zoom in; bring them together to zoom out.
+Zoom uses Command + `=` / Command + `-` in the focused app, so tap the desired window
+first. Apps must support those zoom shortcuts; this changes app zoom in steps. Small
+contact jitter is filtered, direction reversals require deliberate movement, and zoom
+is limited to one step per 120 ms with no queued steps. Once a pinch starts, changing
+the contact set or bringing fingertips nearly together stops it until every finger lifts.
+
+The custom app identity is **Touchward Custom** (`com.edward.touchward`). Its
+`OnScreenKeyboardEnabled` preference defaults to true; setting it to false disables
+automatic keyboard presentation for a physical-keyboard setup. After changing the
+preference, restart the custom app:
+
+```bash
+defaults write com.edward.touchward OnScreenKeyboardEnabled -bool false
+```
+
+The customization remains free and open source with no trial. The custom installation
+uses only `/Applications/Touchward Custom.app`. The original app was removed on October 25
+at Edward's request and preserved in a recovery ZIP; see the recovery runbook. [Current state](docs/project/state.md) records
+installation and physical acceptance separately from test results. Version 1.0.7/build 10
+passes 181 tests, the release build, and signature verification. It fixes the HID-removal
+callback crash, resets device state on reconnect, reopens on Mac wake, and retries failed
+multitouch negotiation. The installed login job now restarts the app after exit. A
+controlled exit verified automatic restart. Both permissions, Input Mode 2, ten contact
+slots, and exclusive seizure are confirmed live. Edward confirmed two-finger scrolling and three-finger desktop switching on 1.0.5.
+Edward initially confirmed both zoom directions on 1.0.6, then reported unstable
+in/out oscillation. Physical stability acceptance of the 1.0.7 repair remains pending,
+as does sleep/reconnect acceptance. The keyboard preference remains false.
+
+Earlier ad-hoc builds invalidated Accessibility after replacement. This fork now reuses
+the configured Apple Development certificate and refuses to build without it. After one
+entry refresh for that transition, a second signed replacement preserved both permissions
+without another approval. Keep the identity stable; do not install ad-hoc replacements.
+Use `bash scripts/build-app.sh` then `bash scripts/install.sh`; the installer updates the
+supervised login job. See [runtime recovery](docs/project/runbooks/recovery.md) for
+verification, certificate expiry, stopping supervision, and rollback.
+
+The documentation below is the upstream reference. Its release links install the
+upstream build. Local build outputs, log names, and app names follow `scripts/appconfig.sh`
+and therefore use **Touchward Custom** in this fork. The gesture table above describes the
+approved custom mapping; upstream gesture descriptions below describe the upstream build.
+The upstream tested-hardware section does not certify the custom LG setup.
+
+---
+
 [![release](https://img.shields.io/github/v/release/nguyenthienthanh/touchward)](https://github.com/nguyenthienthanh/touchward/releases/latest)
 [![npm](https://img.shields.io/npm/v/touchward)](https://www.npmjs.com/package/touchward)
 [![Homebrew](https://img.shields.io/badge/homebrew-nguyenthienthanh%2Ftap-orange)](https://github.com/nguyenthienthanh/homebrew-tap)
@@ -231,7 +297,7 @@ bash scripts/make-dmg.sh           # Artifacts/Touchward-1.0.0.dmg
 ### Running the tests
 
 ```bash
-swift test                         # 96 tests, no permissions required
+swift test                         # 152 tests, no permissions required
 ```
 
 `TouchwardCore` is pure logic with no IOKit and no AppKit, precisely so the parsing,

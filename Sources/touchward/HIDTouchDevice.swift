@@ -25,6 +25,7 @@ struct DeviceProfile {
 /// offset, contact count or report layout is assumed anywhere in this project.
 final class HIDTouchDevice {
 
+    private var sessionGeneration: UInt64 = 0
     private var manager: IOHIDManager?
     private var devices: [IOHIDDevice] = []
     private var openOptionsByDevice: [IOOptionBits] = []
@@ -43,6 +44,8 @@ final class HIDTouchDevice {
     var onDisconnect: (() -> Void)?
 
     func start(onFrame: @escaping (TouchFrame) -> Void) -> Result<DeviceProfile, StartError> {
+        // Failed discovery and reconnects must not retain a manager or old contacts.
+        stop()
         self.onFrame = onFrame
 
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -63,15 +66,18 @@ final class HIDTouchDevice {
         // the device stays shared, macOS keeps driving the pointer from it, and the log
         // cheerfully reports a seize that never happened. Matching alone is enough to
         // enumerate; the one and only open is the seize below.
-        guard let found = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>,
-              let device = found.first else {
+        var found = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>) ?? []
+        if found.isEmpty {
             let opened = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-            guard opened == kIOReturnSuccess else { return .failure(.managerOpenFailed(opened)) }
-            guard let retry = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>,
-                  let device = retry.first else { return .failure(.deviceNotFound) }
-            guard let profile = attach(device) else { return .failure(.unreadableDescriptor) }
-            self.profile = profile
-            return .success(profile)
+            guard opened == kIOReturnSuccess else {
+                stop()
+                return .failure(.managerOpenFailed(opened))
+            }
+            found = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>) ?? []
+        }
+        guard let device = found.first else {
+            stop()
+            return .failure(.deviceNotFound)
         }
 
         IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, _ in
@@ -89,7 +95,16 @@ final class HIDTouchDevice {
             log("ℹ️  \(found.count) devices declare Digitizer/Touch Screen; using the first.")
         }
 
-        guard let profile = attach(device) else { return .failure(.unreadableDescriptor) }
+        guard let profile = attach(device) else {
+            stop()
+            return .failure(.unreadableDescriptor)
+        }
+        // USB resume can expose the descriptor before feature reports are ready.
+        // Leave activation dormant so the existing retry poll renegotiates mode 2.
+        guard profile.inputModeReportID == nil || inputModeSet else {
+            stop()
+            return .failure(.multitouchNotReady)
+        }
         self.profile = profile
         return .success(profile)
     }
@@ -419,13 +434,21 @@ final class HIDTouchDevice {
         return false
     }
 
-    private func handleRemoval() {
-        onDisconnect?()
-        stop()
+    func handleRemoval() {
+        // IOKit is still executing __IOHIDManagerDeviceRemoved here. Closing or
+        // releasing that manager reenters its lock and caused an unfair-lock abort.
+        // Retain ownership until the callback has returned, then tear down first.
+        let removedSession = sessionGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.sessionGeneration == removedSession else { return }
+            self.stop()
+            self.onDisconnect?()
+        }
     }
 
     /// Unschedules, closes and frees everything. Safe to call twice.
     func stop() {
+        sessionGeneration &+= 1
         slotFlush?.invalidate()
         slotFlush = nil
         pendingSlotTime = nil
@@ -449,12 +472,24 @@ final class HIDTouchDevice {
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         }
         manager = nil
+        fingerFields.removeAll()
+        tracker = SlotTracker()
+        assembler = TouchValueAssembler()
+        isSeized = false
+        seizedInterfaces = 0
+        inputModeSet = false
+        profile = nil
+        valuesSeen = 0
+        digitizerValuesSeen = 0
+        framesEmitted = 0
+        onFrame = nil
     }
 
     enum StartError: Error, CustomStringConvertible {
         case managerOpenFailed(IOReturn)
         case deviceNotFound
         case unreadableDescriptor
+        case multitouchNotReady
 
         var description: String {
             switch self {
@@ -470,6 +505,8 @@ final class HIDTouchDevice {
                 return "No device declares itself a Digitizer/Touch Screen. Check the USB cable."
             case .unreadableDescriptor:
                 return "The device declares no X/Y range — touch is never mapped by guesswork."
+            case .multitouchNotReady:
+                return "Multitouch mode is not ready; waiting and retrying automatically."
             }
         }
     }
