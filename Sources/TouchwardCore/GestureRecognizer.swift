@@ -94,6 +94,15 @@ public struct GestureRecognizer: Sendable {
     /// out the double-tap window with no finger on the glass.
     public var needsClock: Bool { hasActiveGesture || pendingTap != nil }
 
+    /// Rare recovery paths taken since the last drain. Ordinary gestures add nothing, so the
+    /// app can log every entry: an occasional glitch then leaves evidence behind.
+    private var anomalies: [String] = []
+
+    public mutating func drainAnomalies() -> [String] {
+        defer { anomalies.removeAll() }
+        return anomalies
+    }
+
     public mutating func handle(_ frame: MappedFrame) -> [GestureEvent] {
         var events: [GestureEvent] = []
         if case .idle = state { events += expireRightClick(at: frame.time) }
@@ -125,7 +134,10 @@ public struct GestureRecognizer: Sendable {
 
     private mutating func process(_ frame: MappedFrame) -> [GestureEvent] {
         let ordered = frame.time >= lastFrameTime
-        if !ordered { pendingTap = nil }
+        if !ordered {
+            pendingTap = nil
+            anomalies.append(String(format: "frame %.3fs older than the last one", lastFrameTime - frame.time))
+        }
         lastFrameTime = max(lastFrameTime, frame.time)
         let count = frame.contacts.count
 
@@ -159,6 +171,7 @@ public struct GestureRecognizer: Sendable {
             guard let point = point(of: id, in: frame) else {
                 // Replaced contact: its position is unrelated to `start`, so pressing there
                 // would drag from the wrong place. Wait for the lift, like `.held` does.
+                anomalies.append("contact \(id) replaced before it moved; ignoring until lift")
                 pendingTap = nil
                 state = .consumed
                 return []
@@ -184,6 +197,7 @@ public struct GestureRecognizer: Sendable {
                 return []
             }
             guard let point = point(of: id, in: frame) else {
+                anomalies.append("held contact \(id) replaced; ignoring until lift")
                 state = .consumed
                 return []
             }
@@ -201,6 +215,7 @@ public struct GestureRecognizer: Sendable {
                 return [.dragEnded(at: last)]
             }
             guard let point = point(of: id, in: frame) else {
+                anomalies.append("dragging contact \(id) replaced; drag released")
                 state = .consumed
                 return [.dragEnded(at: last)]
             }
@@ -231,6 +246,7 @@ public struct GestureRecognizer: Sendable {
             return []
         case .dragging(_, let last):
             guard time - lastFrameTime > config.staleDragTimeout else { return [] }
+            anomalies.append(String(format: "no report for %.1fs mid-drag; drag released", time - lastFrameTime))
             state = .consumed
             return [.dragEnded(at: last)]
         default:
@@ -279,6 +295,7 @@ public struct GestureRecognizer: Sendable {
             || spread(frame) < config.minimumPinchSpread {
             // A lift, merged tips, or changed contact set ends zoom immediately. Never
             // resume it from trailing/rediscovered contacts before a full physical lift.
+            anomalies.append("two-finger zoom cut short by a contact change; ignoring until lift")
             state = .consumed
             return []
         }
@@ -377,6 +394,7 @@ public struct GestureRecognizer: Sendable {
         if case .pinch = three.mode,
            frame.contacts.map(\.id).sorted() != three.contactIDs
             || spread(frame) < config.minimumPinchSpread {
+            anomalies.append("three-finger zoom cut short by a contact change; ignoring until lift")
             state = .consumed
             return []
         }

@@ -64,6 +64,7 @@ final class TouchPipeline {
         let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self, self.recognizer.needsClock else { return }
             self.emit(self.recognizer.tick(at: Clock.now()))
+            self.logAnomalies()
         }
         // Common mode: in default mode the heartbeat stalls while a control in our own
         // keyboard panel is tracking — exactly when a held button most needs the backstop.
@@ -116,6 +117,14 @@ final class TouchPipeline {
         let ids = frame.contacts.map(\.id).sorted()
         if ids != lastDiagnosticContactIDs {
             lastDiagnosticContactIDs = ids
+            // Outside the 120-line cap below: these only fire when the panel misbehaves.
+            if ids.isEmpty { warningsThisTouch = 0 }
+            if raw.contacts.count != ids.count {
+                warn("Palm filter dropped \(raw.contacts.count - ids.count) of \(raw.contacts.count) contacts.")
+            }
+            if Set(ids).count != ids.count {
+                warn("Panel reported duplicate contact ids \(ids).")
+            }
             if contactChangesLogged < 120 {
                 contactChangesLogged += 1
                 log("Touch contacts: raw=\(raw.contacts.count) accepted=\(ids.count) ids=\(ids)")
@@ -147,6 +156,22 @@ final class TouchPipeline {
         if handleDirectTouch(mapped) { return }
 
         emit(recognizer.handle(mapped))
+        logAnomalies()
+    }
+
+    /// Uncapped across the session, unlike the trace above: a glitch hours in is exactly
+    /// what that trace cannot show. Capped per touch, because a flickering panel once
+    /// reported duplicate ids twenty times a second.
+    private var warningsThisTouch = 0
+
+    private func warn(_ message: String) {
+        warningsThisTouch += 1
+        if warningsThisTouch <= 5 { log("⚠️ \(message)") }
+        if warningsThisTouch == 5 { log("⚠️ Further warnings suppressed until every finger lifts.") }
+    }
+
+    private func logAnomalies() {
+        for anomaly in recognizer.drainAnomalies() { warn("Gesture: \(anomaly)") }
     }
 
     /// Returns true when the frame was consumed as a key press.

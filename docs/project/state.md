@@ -5,6 +5,23 @@ updated_on: 2026-11-12
 
 # Current State
 
+## November 12 glitch logging
+
+- Edward reported occasional drift ("every now and then something goes weird") and
+  asked for the current behaviour to stay as it is. The log back to October shows no
+  crashes, no permission loss, a constant touch display (1, 3200×1800), and clean
+  recovery from every monitor sleep and the USB re-enumeration a few seconds after wake.
+  The per-session touch trace stops after 120 contact changes, so mid-session glitches
+  left no evidence. Only anomaly found: a 2026-10-29 burst of duplicate contact ids.
+- Version 1.0.11/build 14 adds logging only, no gesture change: the recognizer records rare
+  recovery paths (stale-drag release, replaced contact, out-of-order frame, zoom cut
+  short) and the app logs them, plus palm-filter drops and duplicate ids, as `⚠️` lines,
+  at most five per touch. `grep ⚠️ ~/Library/Logs/Touchward\ Custom.log` finds them.
+- 186 Swift tests pass; the new anomaly test failed before the change. Installed 10:18 UTC
+  with both permissions granted and device seized; installed and built CDHash match
+  `2dd8ccf0133642f4f7e35c9a2e454cc35b346bea`. Known-good 1.0.10 bundle and LaunchAgent are
+  in `~/Projects/touchward/backups/touchward-1.0.10-known-good/`.
+
 ## November 12 two-finger right-click
 
 - Edward asked for a two-finger tap to right-click. He chose to keep the two-finger

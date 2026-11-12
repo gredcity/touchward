@@ -7,7 +7,7 @@
 This Apache-2.0 fork adds local LG CreateBoard customization under
 [PDF-163](https://grandrapidscitygym.atlassian.net/browse/PDF-163). Edward requested two-finger scrolling
 and three-finger desktop navigation on October 23, 2026, and standard two-finger pinch zoom on October 25.
-Version 1.0.10/build 13 uses:
+Version 1.0.11/build 14 uses:
 
 | Gesture | Result |
 |---|---|
