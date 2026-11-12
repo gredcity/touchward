@@ -92,13 +92,13 @@ final class InvariantTests: XCTestCase {
     /// leaves the glass.
     func testDesktopSwipeResumesAfterAContactFlickersOut() {
         var r = GestureRecognizer()
-        _ = r.handle(frame([(1, 100, 100), (2, 200, 100)], at: 0))
-        _ = r.handle(frame([(1, 130, 100), (2, 230, 100)], at: 0.05))
+        _ = r.handle(frame([(1, 100, 100), (2, 200, 100), (3, 300, 100)], at: 0))
+        _ = r.handle(frame([(1, 130, 100), (2, 230, 100), (3, 330, 100)], at: 0.05))
 
-        XCTAssertEqual(r.handle(frame([(1, 130, 100)], at: 0.10)), [])
-        XCTAssertEqual(r.handle(frame([(1, 300, 100), (2, 400, 100)], at: 0.15)), [],
+        XCTAssertEqual(r.handle(frame([(1, 130, 100), (2, 230, 100)], at: 0.10)), [])
+        XCTAssertEqual(r.handle(frame([(1, 300, 100), (2, 400, 100), (3, 500, 100)], at: 0.15)), [],
                        "a returning contact reanchors the centroid")
-        XCTAssertEqual(r.handle(frame([(1, 370, 100), (2, 470, 100)], at: 0.20)),
+        XCTAssertEqual(r.handle(frame([(1, 370, 100), (2, 470, 100), (3, 570, 100)], at: 0.20)),
                        [.swipeRight])
     }
 

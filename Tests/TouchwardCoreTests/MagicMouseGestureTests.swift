@@ -76,11 +76,11 @@ final class MagicMouseGestureTests: XCTestCase {
         XCTAssertEqual(r.tick(at: 1), [])
     }
 
-    func testThreeFingerPanDoesNotSwitchDesktops() {
+    func testThreeFingerPanSwitchesDesktops() {
         var r = GestureRecognizer()
         _ = r.handle(frame([(1, 100, 100), (2, 200, 100), (3, 300, 100)], at: 0))
 
-        XCTAssertEqual(r.handle(frame([(1, 200, 100), (2, 300, 100), (3, 400, 100)], at: 0.1)), [])
+        XCTAssertEqual(r.handle(frame([(1, 200, 100), (2, 300, 100), (3, 400, 100)], at: 0.1)), [.swipeRight])
         XCTAssertEqual(r.handle(empty(at: 0.2)), [.sessionEnded])
     }
 
@@ -135,7 +135,9 @@ final class MagicMouseGestureTests: XCTestCase {
         _ = tap(&r, at: 0)
         _ = r.handle(two(at: 0.2))
 
-        XCTAssertEqual(r.handle(frame([(1, 70, 100), (2, 230, 100)], at: 0.25)), [])
+        XCTAssertEqual(r.handle(frame([(1, 70, 100), (2, 230, 100)], at: 0.25)), [
+            .pinch(scale: 1.6, at: CGPoint(x: 150, y: 100)),
+        ])
         XCTAssertEqual(r.handle(empty(at: 0.3)), [.sessionEnded])
         XCTAssertEqual(tap(&r, at: 0.4), [.sessionEnded])
     }
@@ -203,7 +205,9 @@ final class MagicMouseGestureTests: XCTestCase {
         var r = GestureRecognizer()
         _ = tap(&r, at: 0)
         _ = r.handle(two(at: 0.15))
-        XCTAssertEqual(r.handle(two(at: 0.2, x: 180)), [.swipeRight])
+        XCTAssertEqual(r.handle(two(at: 0.2, x: 180)), [
+            .scroll(dx: 80, dy: 0, at: CGPoint(x: 230, y: 100)),
+        ])
         XCTAssertEqual(r.handle(empty(at: 0.25)), [.sessionEnded])
         XCTAssertEqual(tap(&r, at: 0.3), [.sessionEnded])
     }

@@ -50,6 +50,8 @@ C4Container
 ## Scope
 
 There is one owned app process and one diagnostic file, with no separately deployed service.
+The local login LaunchAgent supervises the app through LaunchServices `open --wait-apps`;
+KeepAlive restarts the app after exit. It is host wiring, not another application service.
 `TouchwardCore` is a library linked into that process, not another container. When enabled,
 the app's keyboard panel is also part of that process. `main.swift` reads the local
 `OnScreenKeyboardEnabled` UserDefaults preference and skips keyboard construction when
@@ -72,10 +74,12 @@ are recorded separately in current state.
 
 ## Open Questions
 
-The installed 1.0.2 build passes signature verification but reports Accessibility not
-granted and Input Monitoring denied. Renew permission, verify live access, and obtain
-physical acceptance. This view establishes the runtime boundary at its verified commit
-rather than those outcomes.
+The 1.0.2 permission failure was resolved on October 23 by replacing the stale
+Accessibility entry with the installed executable's signature, and Edward confirmed
+scrolling. The installed 1.0.4 replacement corrects desktop-switch keyboard-event transport;
+Edward confirmed scrolling and three-finger desktop switching after access renewal.
+Track these and other physical gesture acceptance in current state. This view establishes the
+runtime boundary at its recorded baseline commit, not those outcomes.
 
 ## Accessible Description
 

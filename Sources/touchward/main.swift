@@ -247,10 +247,9 @@ final class AppController: NSObject, NSApplicationDelegate {
 
         // Unplugging mid-drag would otherwise leave the left button logically pressed.
         device.onDisconnect = { [weak self] in
-            DispatchQueue.main.async {
-                log("🔌 Touchscreen unplugged. Releasing anything held down.")
-                self?.deactivate()
-            }
+            // HIDTouchDevice already defers this onto the main queue after cleanup.
+            log("🔌 Touchscreen unplugged. Releasing anything held down.")
+            self?.deactivate()
         }
 
         DisplayRegistry.onReconfiguration { [weak self] in
@@ -261,7 +260,16 @@ final class AppController: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.pipeline?.releaseEverything()
+            // The controller can reset Input Mode during sleep without USB removal.
+            // Drop the session so wake reopens and verifies multitouch mode again.
+            self?.isSleeping = true
+            self?.deactivate()
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.isSleeping = false
+            self?.activateIfPossible()
         }
 
         setUpKeyboard()
@@ -277,6 +285,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// in. It now waits instead, and the display reconfiguration callback and the focus
     /// tick both come back through here.
     private func activateIfPossible() {
+        guard !isSleeping else { return }
         guard let touchDisplay = evaluateTouchDisplay(),
               let mainDisplay = DisplayRegistry.mainDisplay() else {
             if !hasReportedNoDisplay {
@@ -357,6 +366,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var hasReportedNoDisplay = false
     private var hasReportedNoDevice = false
     private var activationTicks = 0
+    private var isSleeping = false
 
     /// A held drag must not survive the process. Ctrl-C is the documented way to quit, and
     /// SIGINT bypasses AppKit entirely — so both paths need the same release.

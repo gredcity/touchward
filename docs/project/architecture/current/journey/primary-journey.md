@@ -66,11 +66,12 @@ correct display. The operator can use the physical keyboard while touch is being
 
 ## Open Questions
 
-Edward confirmed baseline upstream two-finger scrolling. The installed 1.0.2 mapping now
-uses one-finger scrolling, two-finger desktop navigation, and double-tap Mission Control.
-Its replacement binary is waiting for renewed Accessibility permission, despite the
-earlier 1.0.1 grant. The complete interaction path and disabled-keyboard behavior still
-require physical acceptance after access is restored.
+On October 23, renewing the installed 1.0.2 app's stale Accessibility signature restored
+touch access, and Edward confirmed one-finger scrolling. The 1.0.4 working-tree update
+adds two-finger scrolling and three-finger desktop swipes while retaining two-finger
+double-tap Mission Control. Edward confirmed two-finger scrolling and three-finger
+left/right desktop switching on the installed build after access renewal. Other gesture
+acceptance remains separate from automated tests; see current state.
 
 ## Accessible Description
 

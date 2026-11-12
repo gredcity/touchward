@@ -74,6 +74,9 @@ final class TouchPipeline {
     private var pointerMoves = 0
     private var hasSeenMultitouch = false
     private var scrollsEmitted = 0
+    private var lastDiagnosticContactIDs: [UInt8] = []
+    private var contactChangesLogged = 0
+    private var pinchFramesLogged = 0
 
     /// True while the touchscreen is unusable — unplugged, asleep, or its monitor switched
     /// off. Reports keep arriving in that last case, because plenty of panels keep their
@@ -93,6 +96,14 @@ final class TouchPipeline {
         guard !isSuspended else { return }
 
         let frame = palmFilter.reject(raw)
+        let ids = frame.contacts.map(\.id).sorted()
+        if ids != lastDiagnosticContactIDs {
+            lastDiagnosticContactIDs = ids
+            if contactChangesLogged < 120 {
+                contactChangesLogged += 1
+                log("Touch contacts: raw=\(raw.contacts.count) accepted=\(ids.count) ids=\(ids)")
+            }
+        }
 
         framesHandled += 1
         if framesHandled <= 12, let first = frame.contacts.first {
@@ -184,6 +195,10 @@ final class TouchPipeline {
                 }
             }
 
+            if case .pinch(let scale, _) = event, pinchFramesLogged < 30 {
+                pinchFramesLogged += 1
+                log(String(format: "Pinch frame ratio %.4f", Double(scale)))
+            }
             synthesizer.apply(event)
             if case .sessionEnded = event {
                 cursorReturn.scheduleReturn(to: mainCentre)

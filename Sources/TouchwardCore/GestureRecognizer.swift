@@ -1,4 +1,4 @@
-// Modified for Magic Mouse finger gestures, 2026-09-26.
+// Modified for CreateBoard scroll and desktop gestures, 2026-10-23.
 import CoreGraphics
 import Foundation
 
@@ -9,6 +9,10 @@ public struct GestureConfig: Sendable {
     public var swipeThreshold: CGFloat = 60
     public var doubleTapInterval: TimeInterval = 0.35
     public var doubleTapDistance: CGFloat = 40
+    /// Mean radius in display points; closer contacts make ratios amplify tiny jitter.
+    public var minimumPinchSpread: CGFloat = 12
+    public var pinchNoiseThreshold: CGFloat = 4
+    public var pinchReversalThreshold: CGFloat = 12
     /// A change-driven controller sends nothing while a finger rests, so this backstop
     /// releases a held button without claiming that the physical touch session ended.
     public var staleDragTimeout: TimeInterval = 2.0
@@ -16,15 +20,17 @@ public struct GestureConfig: Sendable {
     public init() {}
 }
 
-/// One finger scrolls; holding before moving drags. Two fingers navigate desktops or
-/// double-tap Mission Control, and three or more pinch. Deltas are finger displacement;
+/// Two fingers scroll, pinch, or double-tap Mission Control; exactly three swipe desktops.
+/// One finger also scrolls; holding before moving drags. Three or more can also pinch.
+/// Deltas are finger displacement;
 /// the synthesizer owns polarity. Every drag and physical session ends exactly once.
 public struct GestureRecognizer: Sendable {
     public var config: GestureConfig
 
     private enum TwoFingerMode {
         case undecided
-        case horizontal(direction: CGFloat)
+        case scrolling
+        case pinch
         case ignored
     }
 
@@ -32,24 +38,30 @@ public struct GestureRecognizer: Sendable {
         var startTime: TimeInterval
         var contacts: [MappedContact]
         var start: CGPoint
+        var last: CGPoint
         var startSpread: CGFloat
+        var lastSpread: CGFloat
         var canTap: Bool
         var needsReanchor = false
         var mode: TwoFingerMode = .undecided
+        var pinchDirection: CGFloat = 0
     }
 
     private enum ThreeFingerMode {
         case undecided
+        case horizontal(direction: CGFloat)
         case pinch
         case ignored
     }
 
     private struct ThreeFinger {
         var contactIDs: [UInt8]
+        var canSwipe: Bool
         var start: CGPoint
         var startSpread: CGFloat
         var lastSpread: CGFloat
         var mode: ThreeFingerMode = .undecided
+        var pinchDirection: CGFloat = 0
     }
 
     private enum State {
@@ -236,7 +248,8 @@ public struct GestureRecognizer: Sendable {
             let unique = Set(frame.contacts.map(\.id)).count == 2
             if !canTap || !unique { pendingTap = nil }
             state = .twoDown(TwoFinger(startTime: frame.time, contacts: frame.contacts,
-                                      start: centroid(frame), startSpread: spread(frame),
+                                      start: centroid(frame), last: centroid(frame),
+                                      startSpread: spread(frame), lastSpread: spread(frame),
                                       canTap: canTap && unique,
                                       mode: unique ? .undecided : .ignored))
         }
@@ -248,6 +261,14 @@ public struct GestureRecognizer: Sendable {
         if count == 0 {
             state = .idle
             return finishTwoFinger(two, at: frame.time)
+        }
+        if case .pinch = two.mode,
+           count != 2 || frame.contacts.map(\.id).sorted() != two.contacts.map(\.id).sorted()
+            || spread(frame) < config.minimumPinchSpread {
+            // A lift, merged tips, or changed contact set ends zoom immediately. Never
+            // resume it from trailing/rediscovered contacts before a full physical lift.
+            state = .consumed
+            return []
         }
         if count >= 3 {
             beginMultiple(frame, canTap: false)
@@ -274,37 +295,53 @@ public struct GestureRecognizer: Sendable {
         }
         let current = centroid(frame)
         let currentSpread = spread(frame)
-        if two.needsReanchor || ids != two.contacts.map(\.id).sorted() {
+        if two.needsReanchor || ids != two.contacts.map(\.id).sorted()
+            || two.startSpread <= 0 || currentSpread <= 0 {
             two.canTap = false
             pendingTap = nil
             two.contacts = frame.contacts
             two.start = current
+            two.last = current
             two.startSpread = currentSpread
+            two.lastSpread = currentSpread
             two.needsReanchor = false
             state = .twoDown(two)
             return []
         }
 
-        let dx = current.x - two.start.x
-        let dy = current.y - two.start.y
         if case .undecided = two.mode {
             let travel = distance(current, two.start)
             let spreadChange = abs(currentSpread - two.startSpread)
             if travel >= config.moveThreshold, travel > spreadChange * 1.5 {
-                if abs(dx) >= abs(dy) * 1.5 {
-                    two.mode = .horizontal(direction: dx < 0 ? -1 : 1)
-                } else if abs(dy) >= abs(dx) * 1.5 {
-                    two.mode = .ignored
+                two.canTap = false
+                pendingTap = nil
+                two.mode = .scrolling
+            } else if spreadChange >= max(6, two.startSpread * 0.08), spreadChange >= travel {
+                two.canTap = false
+                pendingTap = nil
+                if two.startSpread >= config.minimumPinchSpread,
+                   currentSpread >= config.minimumPinchSpread {
+                    two.mode = .pinch
+                } else {
+                    two.start = current
+                    two.last = current
+                    two.startSpread = currentSpread
+                    two.lastSpread = currentSpread
                 }
-            } else if spreadChange >= max(6, two.startSpread * 0.08), spreadChange > travel {
-                two.mode = .ignored
             }
         }
-        if case .horizontal(let direction) = two.mode,
-           direction * dx >= config.swipeThreshold, abs(dx) >= abs(dy) * 1.5 {
-            pendingTap = nil
-            state = .consumed
-            return [direction < 0 ? .swipeLeft : .swipeRight]
+        if case .scrolling = two.mode {
+            let dx = current.x - two.last.x
+            let dy = current.y - two.last.y
+            two.last = current
+            state = .twoDown(two)
+            return dx == 0 && dy == 0 ? [] : [.scroll(dx: dx, dy: dy, at: current)]
+        }
+        if case .pinch = two.mode {
+            let scale = stabilizedPinchScale(currentSpread, last: &two.lastSpread,
+                                             direction: &two.pinchDirection)
+            state = .twoDown(two)
+            return scale.map { [.pinch(scale: $0, at: current)] } ?? []
         }
         state = .twoDown(two)
         return []
@@ -313,7 +350,8 @@ public struct GestureRecognizer: Sendable {
     private func threeFinger(_ frame: MappedFrame) -> ThreeFinger {
         let ids = frame.contacts.map(\.id).sorted()
         let currentSpread = spread(frame)
-        return ThreeFinger(contactIDs: ids, start: centroid(frame),
+        return ThreeFinger(contactIDs: ids, canSwipe: ids.count == 3 && Set(ids).count == 3,
+                           start: centroid(frame),
                            startSpread: currentSpread, lastSpread: currentSpread)
     }
 
@@ -324,6 +362,12 @@ public struct GestureRecognizer: Sendable {
             return [.sessionEnded]
         }
         var three = previous
+        if case .pinch = three.mode,
+           frame.contacts.map(\.id).sorted() != three.contactIDs
+            || spread(frame) < config.minimumPinchSpread {
+            state = .consumed
+            return []
+        }
         guard count >= 3 else {
             three.contactIDs = []
             state = .threeDown(three)
@@ -333,6 +377,13 @@ public struct GestureRecognizer: Sendable {
         let ids = frame.contacts.map(\.id).sorted()
         let current = centroid(frame)
         let currentSpread = spread(frame)
+        // A fourth contact or duplicate IDs cannot qualify as a desktop swipe,
+        // including after it lifts again. Committed pinches already stop on contact change.
+        if count != 3 || Set(ids).count != 3 {
+            three.canSwipe = false
+            if case .horizontal = three.mode { three.mode = .ignored }
+        }
+        if Set(ids).count != count { three.mode = .ignored }
         guard ids == three.contactIDs, three.startSpread > 0, currentSpread > 0 else {
             three.contactIDs = ids
             three.start = current
@@ -346,23 +397,62 @@ public struct GestureRecognizer: Sendable {
             let travel = distance(current, three.start)
             let spreadChange = abs(currentSpread - three.startSpread)
             if travel >= config.moveThreshold, travel > spreadChange * 1.5 {
-                three.mode = .ignored
+                let dx = current.x - three.start.x
+                let dy = current.y - three.start.y
+                if three.canSwipe, abs(dx) >= abs(dy) * 1.5 {
+                    three.mode = .horizontal(direction: dx < 0 ? -1 : 1)
+                } else if !three.canSwipe || abs(dy) >= abs(dx) * 1.5 {
+                    three.mode = .ignored
+                }
             } else if spreadChange >= max(6, three.startSpread * 0.08), spreadChange > travel {
-                three.mode = .pinch
+                if three.startSpread >= config.minimumPinchSpread,
+                   currentSpread >= config.minimumPinchSpread {
+                    three.mode = .pinch
+                } else {
+                    three.start = current
+                    three.startSpread = currentSpread
+                    three.lastSpread = currentSpread
+                }
             }
         }
 
         switch three.mode {
+        case .horizontal(let direction):
+            let dx = current.x - three.start.x
+            let dy = current.y - three.start.y
+            if direction * dx >= config.swipeThreshold, abs(dx) >= abs(dy) * 1.5 {
+                state = .consumed
+                return [direction < 0 ? .swipeLeft : .swipeRight]
+            }
         case .pinch:
-            let scale = currentSpread / three.lastSpread
-            three.lastSpread = currentSpread
+            let scale = stabilizedPinchScale(currentSpread, last: &three.lastSpread,
+                                             direction: &three.pinchDirection)
             state = .threeDown(three)
-            return scale == 1 ? [] : [.pinch(scale: scale, at: current)]
+            return scale.map { [.pinch(scale: $0, at: current)] } ?? []
         case .undecided, .ignored:
             break
         }
         state = .threeDown(three)
         return []
+    }
+
+    /// Keep the last accepted spread as the anchor, so small movements accumulate but
+    /// jitter cannot repeatedly alternate zoom directions around the same hand position.
+    private func stabilizedPinchScale(_ current: CGFloat, last: inout CGFloat,
+                                      direction: inout CGFloat) -> CGFloat? {
+        guard current.isFinite, last.isFinite, last > 0 else { return nil }
+        let delta = current - last
+        guard delta != 0 else { return nil }
+        let nextDirection: CGFloat = delta > 0 ? 1 : -1
+        let reversing = direction != 0 && direction != nextDirection
+        let threshold = reversing
+            ? max(config.pinchReversalThreshold, last * 0.15)
+            : max(config.pinchNoiseThreshold, last * 0.02)
+        guard abs(delta) >= threshold else { return nil }
+        let scale = current / last
+        last = current
+        direction = nextDirection
+        return scale
     }
 
     /// Mean distance from the centroid: how open the hand is, in points. Comparing this

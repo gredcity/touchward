@@ -18,7 +18,7 @@ and his existing Bluetooth keyboard.
   `OnScreenKeyboardEnabled` preference is false.
 - Keep one-finger horizontal motion as content scrolling; do not add browser page-back
   or page-forward shortcuts.
-- Keep the original app available for rollback. Automated tests support, but do not
+- Keep the original app only in its recovery ZIP following Edward's October 25 removal request. Automated tests support, but do not
   replace, Edward's physical acceptance on the board.
 
 ## Scope
