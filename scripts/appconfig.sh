@@ -11,8 +11,8 @@
 
 APP_NAME="Touchward Custom"
 BUNDLE_ID="com.edward.touchward"
-VERSION="1.0.7"
-BUILD_NUMBER="10"
+VERSION="1.0.8"
+BUILD_NUMBER="11"
 
 # The Swift product name. Fixed, and independent of the display name.
 PRODUCT="touchward"

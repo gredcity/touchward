@@ -10,8 +10,22 @@ final class TouchPipeline {
     private var palmFilter: PalmFilter
     private let synthesizer: EventSynthesizer
     private let cursorReturn: CursorReturn
-    private var mainCentre: CGPoint
+    /// Nil when the touchscreen is itself the main display: there is no "home" to return to.
+    private var returnTarget: CGPoint?
     private var heartbeat: Timer?
+
+    /// The cursor return exists to get the pointer off a secondary touch panel. When the
+    /// panel is the main display, warping to its centre after every lift reads as the
+    /// mouse randomly recentring.
+    static func cursorReturnTarget(touchDisplay: CGDirectDisplayID,
+                                   mainDisplay: CGDirectDisplayID) -> CGPoint? {
+        touchDisplay == mainDisplay ? nil : DisplayRegistry.centre(of: mainDisplay)
+    }
+
+    private func armCursorReturn() {
+        guard let returnTarget else { return }
+        cursorReturn.scheduleReturn(to: returnTarget)
+    }
 
     /// Global-coordinate rect of the on-screen keyboard while it is visible.
     /// Touches inside it bypass gesture classification entirely.
@@ -39,7 +53,7 @@ final class TouchPipeline {
                                        logicalMaxY: profile.logicalMaxY,
                                        displayBounds: CGDisplayBounds(touchDisplay))
         self.palmFilter = PalmFilter(logicalMax: profile.logicalMax)
-        self.mainCentre = DisplayRegistry.centre(of: mainDisplay)
+        self.returnTarget = Self.cursorReturnTarget(touchDisplay: touchDisplay, mainDisplay: mainDisplay)
     }
 
     /// Drives the clock-dependent half of the recognizer: long press on a still finger, and
@@ -62,7 +76,9 @@ final class TouchPipeline {
                                   logicalMaxY: profile.logicalMaxY,
                                   displayBounds: CGDisplayBounds(touchDisplay),
                                   calibration: mapper.calibration)
-        mainCentre = DisplayRegistry.centre(of: mainDisplay)
+        returnTarget = Self.cursorReturnTarget(touchDisplay: touchDisplay, mainDisplay: mainDisplay)
+        // Displays may have just become one: a return queued for the old layout must not fire.
+        if returnTarget == nil { cursorReturn.cancelPendingReturn() }
     }
 
     var calibration: Calibration {
@@ -169,7 +185,7 @@ final class TouchPipeline {
         // The keyboard swallows these frames, so the recognizer never reaches
         // `sessionEnded` and nothing else would ever arm the return. Without this, one tap
         // on a key stranded the cursor on the touchscreen for the rest of the session.
-        cursorReturn.scheduleReturn(to: mainCentre)
+        armCursorReturn()
     }
 
     /// Closes out anything in flight. Called on quit, on unplug, and on sleep, so a pointer
@@ -201,7 +217,7 @@ final class TouchPipeline {
             }
             synthesizer.apply(event)
             if case .sessionEnded = event {
-                cursorReturn.scheduleReturn(to: mainCentre)
+                armCursorReturn()
             }
         }
     }

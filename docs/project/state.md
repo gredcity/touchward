@@ -1,9 +1,26 @@
 ---
 lifecycle: build
-updated_on: 2026-10-25
+updated_on: 2026-11-12
 ---
 
 # Current State
+
+## November 12 cursor recentring repair
+
+- Edward reported the mouse repeatedly jumping to screen centre. Root cause: the
+  CreateBoard is display 1 and the only, main display, but `CursorReturn` warped the
+  pointer to the main display's centre ~0.5–1.5 s after every touch lift. It was built
+  for a secondary touch panel and had no single-display guard.
+- Version 1.0.8/build 11: `TouchPipeline.cursorReturnTarget` returns nil when the touch
+  display is the main display, so no return is armed; a display change into that layout
+  cancels any queued return. Secondary-panel behaviour is unchanged.
+- 183 Swift tests pass; the new `CursorReturnTargetTests` failed before the fix.
+  Installed 09:21 UTC with both permissions still granted and device seized; installed
+  and built executable SHA-256 match:
+  `4b1df61b09cb1cf1abf10dfb6e13765c1863fa40435bf48a9a6f0d36f63ec7e1`.
+  Prior 1.0.7 bundle and LaunchAgent are in
+  `~/Projects/touchward/backups/touchward-1.0.7-before-recentre-fix/`.
+  Physical acceptance pending. Committed on `hotfix/no-recentre-single-display`.
 
 ## October 25 pinch stability repair
 
